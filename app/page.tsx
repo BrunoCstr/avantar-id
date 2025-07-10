@@ -1,7 +1,6 @@
 "use client"
 
 import type React from "react"
-
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
@@ -11,12 +10,8 @@ import { Label } from "@/components/ui/label"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Eye, EyeOff, Shield } from "lucide-react"
 import Image from "next/image"
-
-// Usuários pré-cadastrados para demonstração
-const DEMO_USERS = [
-  { email: "admin@avantar.com", password: "admin123", role: "admin" },
-  { email: "franqueado@avantar.com", password: "franq123", role: "user" },
-]
+import { useAuth } from "@/contexts/AuthContext"
+import { LoadingScreen, LoadingSpinner } from "@/components/ui/loading"
 
 export default function LoginPage() {
   const [email, setEmail] = useState("")
@@ -25,33 +20,56 @@ export default function LoginPage() {
   const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)
   const router = useRouter()
+  const { user, userData, login } = useAuth()
+
+  // Debug: verificar estado do Firebase
+  useEffect(() => {
+    console.log('Estado do usuário:', { user: user?.email, userData: userData?.role, loading })
+  }, [user, userData, loading])
 
   useEffect(() => {
-    // Verificar se já está logado
-    const user = localStorage.getItem("currentUser")
-    if (user) {
+    // Se o usuário já está autenticado, redirecionar para dashboard
+    if (user && userData) {
+      console.log('Redirecionando para dashboard - user:', user.email, 'role:', userData.role)
       router.push("/dashboard")
+    } else if (user && !userData) {
+      console.log('Usuário autenticado mas sem dados do Firestore:', user.email)
     }
-  }, [router])
+  }, [user, userData, router])
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
     setError("")
 
-    // Simular delay de autenticação
-    await new Promise((resolve) => setTimeout(resolve, 1000))
+    try {
+      // Fazer login com Firebase Auth
+      await login(email, password)
 
-    const user = DEMO_USERS.find((u) => u.email === email && u.password === password)
+      console.log('Login realizado com sucesso')
 
-    if (user) {
-      localStorage.setItem("currentUser", JSON.stringify(user))
+      // Aguardar um pouco para que o contexto seja atualizado
+      setTimeout(() => {
+        console.log('Forçando redirecionamento para dashboard')
       router.push("/dashboard")
-    } else {
-      setError("Email ou senha incorretos")
+        setLoading(false)
+      }, 500)
+      
+    } catch (error: any) {
+      console.error('Erro no login:', error)
+      setError(error.message || "Erro ao fazer login")
+      setLoading(false)
     }
+  }
 
-    setLoading(false)
+  // Se já está autenticado, mostrar loader antes de redirecionar
+  if (user && userData) {
+    return <LoadingScreen title="Autenticando..." subtitle="Redirecionando para o dashboard" size="lg" />
+  }
+
+  // Se está fazendo login, mostrar loader
+  if (loading) {
+    return <LoadingScreen title="Fazendo login..." subtitle="Aguarde um momento" size="lg" />
   }
 
   return (
@@ -60,11 +78,11 @@ export default function LoginPage() {
         <CardHeader className="text-center space-y-6 pb-8">
           <div className="flex justify-center">
             <Image
-              src="/avantar_logo_completa.svg"
+              src="/avantar_logo_completa.jpg"
               alt="Avantar Logo"
-              width={200}
-              height={60}
-              className="h-14 w-auto"
+              width={250}
+              height={40}
+              style={{ objectFit: 'contain' }}
             />
           </div>
           <div className="space-y-3">
@@ -72,10 +90,10 @@ export default function LoginPage() {
               <div className="w-10 h-10 rounded-2xl bg-[#6600CC]/10 flex items-center justify-center">
                 <Shield className="h-5 w-5" />
               </div>
-              <CardTitle className="text-2xl font-light">Sistema de Autenticação</CardTitle>
+              <CardTitle className="text-2xl font-bold">Sistema de Autenticação</CardTitle>
             </div>
             <CardDescription className="text-gray-500 text-base">
-              Acesso seguro para códigos 2FA das seguradoras parceiras
+              Acesso seguro para códigos 2FA das seguradoras.
             </CardDescription>
           </div>
         </CardHeader>
@@ -127,24 +145,26 @@ export default function LoginPage() {
               </Alert>
             )}
 
+            {/* Debug: mostrar se Firebase está configurado */}
+            {!process.env.NEXT_PUBLIC_FIREBASE_API_KEY && (
+              <Alert className="border-yellow-200 bg-yellow-50">
+                <AlertDescription className="text-yellow-700">
+                  ⚠️ Firebase não configurado. Configure as variáveis de ambiente em .env.local
+                </AlertDescription>
+              </Alert>
+            )}
+
             <Button type="submit" className="w-full bg-[#6600CC] hover:bg-[#5500AA] text-white" disabled={loading}>
-              {loading ? "Autenticando..." : "Entrar"}
+              {loading ? (
+                <div className="flex items-center gap-2">
+                  <LoadingSpinner size="sm" />
+                  Autenticando...
+                </div>
+              ) : (
+                "Entrar"
+              )}
             </Button>
           </form>
-
-          <div className="mt-8 p-6 bg-gradient-to-r from-gray-50 to-white rounded-2xl border border-gray-100">
-            <p className="text-sm font-medium text-gray-700 mb-3">Credenciais de demonstração:</p>
-            <div className="space-y-2 text-sm text-gray-600">
-              <div className="flex items-center justify-between p-2 bg-white rounded-lg">
-                <span className="font-medium">Administrador:</span>
-                <span className="font-mono text-xs">admin@avantar.com / admin123</span>
-              </div>
-              <div className="flex items-center justify-between p-2 bg-white rounded-lg">
-                <span className="font-medium">Franqueado:</span>
-                <span className="font-mono text-xs">franqueado@avantar.com / franq123</span>
-              </div>
-            </div>
-          </div>
         </CardContent>
       </Card>
     </div>
