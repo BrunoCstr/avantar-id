@@ -44,14 +44,32 @@ export default function UserManagement() {
     role: "user" as "admin" | "user",
   })
   const [error, setError] = useState("")
-  const { register, updateUserRole } = useAuth()
+  const { register, updateUserRole, userData } = useAuth()
   const { toast } = useToast()
 
+  // Verificar se o usuário é administrador
   useEffect(() => {
-    loadUsers()
-  }, [])
+    if (userData && userData.role !== 'admin') {
+      toast({
+        title: "Acesso Negado",
+        description: "Apenas administradores podem acessar esta funcionalidade",
+        variant: "destructive"
+      })
+      return
+    }
+    
+    if (userData?.role === 'admin') {
+      loadUsers()
+    }
+  }, [userData, toast])
 
   const loadUsers = async () => {
+    // Verificar se o usuário é administrador
+    if (!userData || userData.role !== 'admin') {
+      console.error('Tentativa de acesso não autorizado ao gerenciamento de usuários')
+      return
+    }
+
     try {
       setLoading(true)
       const usersCollection = collection(db, 'users')
