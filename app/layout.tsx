@@ -4,6 +4,7 @@ import { DM_Sans } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
 import { AuthProvider } from "@/contexts/AuthContext";
+import EmailWatcherInitializer from "@/components/EmailWatcherInitializer";
 
 const dmSans = DM_Sans({
   subsets: ["latin"],
@@ -32,6 +33,7 @@ export default function RootLayout({
     <html lang="pt-BR">
       <body className={dmSans.className}>
         <AuthProvider>
+          <EmailWatcherInitializer />
           {children}
           <Toaster />
         </AuthProvider>

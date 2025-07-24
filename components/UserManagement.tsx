@@ -107,13 +107,20 @@ export default function UserManagement() {
     }
 
     try {
-      await register(newUser.email, newUser.password, newUser.name, newUser.role)
-      
+      // Criar usuário via API admin
+      const res = await fetch('/api/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newUser)
+      })
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.error || 'Erro ao criar usuário')
+      }
       toast({
         title: "Usuário criado!",
         description: `${newUser.email} foi cadastrado com sucesso`,
       })
-
       setNewUser({ email: "", password: "", name: "", role: "user" })
       setIsDialogOpen(false)
       await loadUsers() // Recarregar lista de usuários
@@ -127,6 +134,13 @@ export default function UserManagement() {
       try {
         // Remover documento do Firestore
         await deleteDoc(doc(db, 'users', uid))
+        
+        // Remover do Auth via API
+        await fetch('/api/users', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ uid })
+        })
         
         toast({
           title: "Usuário removido",

@@ -104,7 +104,6 @@ export async function logUserAccess(
     }
 
     await addDoc(collection(db, 'access-logs'), accessLog)
-    console.log('Log de acesso registrado:', { action, userId, ip })
   } catch (error) {
     console.error('Erro ao registrar log de acesso:', error)
     // Não falhar a aplicação se o log falhar

@@ -22,18 +22,10 @@ export default function LoginPage() {
   const router = useRouter()
   const { user, userData, login } = useAuth()
 
-  // Debug: verificar estado do Firebase
-  useEffect(() => {
-    console.log('Estado do usuário:', { user: user?.email, userData: userData?.role, loading })
-  }, [user, userData, loading])
-
   useEffect(() => {
     // Se o usuário já está autenticado, redirecionar para dashboard
     if (user && userData) {
-      console.log('Redirecionando para dashboard - user:', user.email, 'role:', userData.role)
       router.push("/dashboard")
-    } else if (user && !userData) {
-      console.log('Usuário autenticado mas sem dados do Firestore:', user.email)
     }
   }, [user, userData, router])
 
@@ -46,11 +38,8 @@ export default function LoginPage() {
       // Fazer login com Firebase Auth
       await login(email, password)
 
-      console.log('Login realizado com sucesso')
-
       // Aguardar um pouco para que o contexto seja atualizado
       setTimeout(() => {
-        console.log('Forçando redirecionamento para dashboard')
       router.push("/dashboard")
         setLoading(false)
       }, 500)

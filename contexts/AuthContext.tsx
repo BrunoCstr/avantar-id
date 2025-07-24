@@ -68,7 +68,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Função para limpar completamente o estado de autenticação
   const clearAuthState = async () => {
     try {
-      console.log('Limpando estado de autenticação...')
       
       // Limpar estado local
       setUser(null)
@@ -78,7 +77,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         await signOut(auth)
       } catch (signOutError) {
-        console.log('SignOut falhou (pode ser normal se não há usuário):', signOutError)
       }
       
       // Limpar session cookies no servidor
@@ -91,7 +89,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           body: JSON.stringify({ uid: null }),
         })
       } catch (deleteError) {
-        console.log('Erro ao deletar session cookie (pode ser normal):', deleteError)
+          console.error('Erro ao deletar session cookie (pode ser normal):', deleteError)
       }
       
       // Limpar localStorage relacionado ao Firebase (se houver)
@@ -102,8 +100,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           }
         })
       }
-      
-      console.log('Estado de autenticação limpo')
     } catch (error) {
       console.error('Erro ao limpar estado de autenticação:', error)
     }
@@ -114,7 +110,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!isClient) return
 
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      console.log('Auth state changed:', firebaseUser?.email || 'No user')
       
       if (firebaseUser) {
         try {
@@ -128,7 +123,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           if (userDoc.exists()) {
             setUserData(userDoc.data() as UserData)
           } else {
-            console.log('Usuário não encontrado no Firestore')
             setUserData(null)
           }
         } catch (error: any) {
@@ -136,7 +130,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           
           // Se houver erro de token, limpar estado
           if (error.code === 'auth/user-token-expired' || error.code === 'auth/user-disabled') {
-            console.log('Token inválido detectado, limpando estado...')
             await clearAuthState()
             return
           }
@@ -162,7 +155,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Configurar persistência antes do login
       await setPersistence(auth, browserLocalPersistence)
       
-      console.log('Tentando fazer login para:', email)
       const userCredential = await signInWithEmailAndPassword(auth, email, password)
       const user = userCredential.user
       
@@ -182,13 +174,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         throw new Error('Erro ao criar sessão no servidor')
       }
       
-      console.log('Login realizado com sucesso')
     } catch (error: any) {
       console.error('Erro no login:', error)
       
       // Se houver erro relacionado a token expirado, tentar limpar e tentar novamente
       if (error.code === 'auth/user-token-expired') {
-        console.log('Token expirado detectado, limpando estado e tentando novamente...')
         await clearAuthState()
         
         try {
@@ -205,7 +195,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             body: JSON.stringify({ idToken: retryToken }),
           })
           
-          console.log('Login realizado com sucesso na segunda tentativa')
           return
         } catch (retryError: any) {
           console.error('Erro na segunda tentativa:', retryError)
@@ -219,7 +208,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = async () => {
     try {
-      console.log('Iniciando logout...')
       
       // Usar a função de limpeza completa
       await clearAuthState()
@@ -227,7 +215,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Redirecionar para página inicial
       router.push('/')
       
-      console.log('Logout realizado com sucesso')
     } catch (error) {
       console.error('Erro ao fazer logout:', error)
       
@@ -263,7 +250,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       await setDoc(doc(db, 'users', user.uid), userData)
       
-      console.log('Usuário registrado com sucesso')
     } catch (error: any) {
       console.error('Erro no registro:', error)
       throw new Error(error.message || 'Erro ao registrar usuário')
@@ -273,7 +259,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const resetPassword = async (email: string) => {
     try {
       await sendPasswordResetEmail(auth, email)
-      console.log('Email de reset enviado')
     } catch (error: any) {
       console.error('Erro ao enviar email de reset:', error)
       throw new Error(error.message || 'Erro ao enviar email de reset')
@@ -283,7 +268,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const updateUserRole = async (uid: string, role: 'admin' | 'user') => {
     try {
       await setDoc(doc(db, 'users', uid), { role }, { merge: true })
-      console.log('Role do usuário atualizada')
     } catch (error: any) {
       console.error('Erro ao atualizar role:', error)
       throw new Error(error.message || 'Erro ao atualizar role do usuário')

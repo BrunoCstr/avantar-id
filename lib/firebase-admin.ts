@@ -17,18 +17,16 @@ async function initializeFirebaseAdmin() {
     
     // Verificar se já existe uma instância
     if (admin.default.apps.length === 0) {
-      const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT_KEY 
-        ? JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY)
-        : {
-            projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-            clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-            privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-          }
+      const serviceAccount = {
+        projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+        clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+        privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+      };
 
       admin.default.initializeApp({
         credential: admin.default.credential.cert(serviceAccount),
         projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-      })
+      });
     }
 
     return {
@@ -57,4 +55,11 @@ export async function getAdminDb() {
     adminDb = db
   }
   return adminDb
+} 
+
+// Função para deletar usuário do Auth
+export async function deleteUserFromAuth(uid: string) {
+  const adminAuth = await getAdminAuth()
+  if (!adminAuth) throw new Error('Firebase Admin Auth não disponível')
+  return adminAuth.deleteUser(uid)
 } 
