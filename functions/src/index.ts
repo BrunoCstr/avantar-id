@@ -82,7 +82,7 @@ export function checkEmails(
                         return;
                       }
                       const { text, html } = parsed;
-                      let code = text?.match(/\b\d{6,10}\b/);
+                      let code = text?.match(/\b\d{4,10}\b/);
 
                       if (!code && html) {
                         // Remove todo o conteúdo das tags <style>, pq pode conter hexadecimais etc...

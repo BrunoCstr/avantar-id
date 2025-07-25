@@ -1,0 +1,21 @@
+[debug] [2025-07-25T17:28:23.572Z] ----------------------------------------------------------------------
+[debug] [2025-07-25T17:28:23.574Z] Command:       C:\Program Files\nodejs\node.exe C:\Users\tecno\AppData\Roaming\npm\node_modules\firebase-tools\lib\bin\firebase.js deploy --only functions
+[debug] [2025-07-25T17:28:23.575Z] CLI Version:   14.11.1
+[debug] [2025-07-25T17:28:23.575Z] Platform:      win32
+[debug] [2025-07-25T17:28:23.575Z] Node Version:  v20.19.2
+[debug] [2025-07-25T17:28:23.575Z] Time:          Fri Jul 25 2025 14:28:23 GMT-0300 (Horário Padrão de Brasília)
+[debug] [2025-07-25T17:28:23.575Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2025-07-25T17:28:23.769Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2025-07-25T17:28:23.770Z] > authorizing via signed-in user (desenvolvimento@avantar.com.br)
+[debug] [2025-07-25T17:28:23.770Z] [iam] checking project fa-avantar for permissions ["cloudfunctions.functions.create","cloudfunctions.functions.delete","cloudfunctions.functions.get","cloudfunctions.functions.list","cloudfunctions.functions.update","cloudfunctions.operations.get","firebase.projects.get"]
+[debug] [2025-07-25T17:28:23.771Z] Checked if tokens are valid: false, expires at: 1753454557826
+[debug] [2025-07-25T17:28:23.771Z] Checked if tokens are valid: false, expires at: 1753454557826
+[debug] [2025-07-25T17:28:23.772Z] > refreshing access token with scopes: []
+[debug] [2025-07-25T17:28:23.773Z] >>> [apiv2][query] POST https://www.googleapis.com/oauth2/v3/token [none]
+[debug] [2025-07-25T17:28:23.773Z] >>> [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2025-07-25T17:28:24.038Z] <<< [apiv2][status] POST https://www.googleapis.com/oauth2/v3/token 200
+[debug] [2025-07-25T17:28:24.038Z] <<< [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2025-07-25T17:28:24.045Z] >>> [apiv2][query] POST https://cloudresourcemanager.googleapis.com/v1/projects/fa-avantar:testIamPermissions [none]
+[debug] [2025-07-25T17:28:24.046Z] >>> [apiv2][(partial)header] POST https://cloudresourcemanager.googleapis.com/v1/projects/fa-avantar:testIamPermissions x-goog-quota-user=projects/fa-avantar
+[debug] [2025-07-25T17:28:24.046Z] >>> [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/fa-avantar:testIamPermissions {"permissions":["cloudfunctions.functions.create","cloudfunctions.functions.delete","cloudfunctions.functions.get","cloudfunctions.functions.list","cloudfunctions.functions.update","cloudfunctions.operations.get","firebase.projects.get"]}
