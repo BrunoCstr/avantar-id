@@ -79,9 +79,6 @@ Este projeto é um sistema de autenticação de dois fatores (2FA) para franquea
    pnpm dev
    ```
 
-6. **Acesse:**
-   - [http://localhost:3000](http://localhost:3000)
-
 ## Pontos de Atenção para Manutenção
 
 - **Variáveis de ambiente:** Nunca suba `.env` para o repositório.
@@ -93,6 +90,9 @@ Este projeto é um sistema de autenticação de dois fatores (2FA) para franquea
   - Regex de código pode ser ajustada em `lib/email-watcher.ts`.
 - **Funções Cloud:**
   - As funções em `/functions` podem ser deployadas no Firebase Functions.
+- **TIMESTAMP TOTP**
+  - Caso acontença do TOTP parar de funcionar, a primeira coisa que você deve fazer é verificar se o horário 
+  - da lib que fornece o secret é o mesmo horário do seu computador local... (Isso é em ambiente de dev, não testei em prod) 
 
 ## Boas Práticas para Contribuir
 

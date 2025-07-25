@@ -34,7 +34,15 @@ import { Label } from "@/components/ui/label";
 import Image from "next/image";
 import { Mail } from "lucide-react";
 
-import { doc, setDoc, getDoc } from "firebase/firestore";
+import {
+  collection,
+  getDocs,
+  addDoc,
+  updateDoc,
+  deleteDoc,
+  doc as firestoreDoc,
+  onSnapshot,
+} from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { QRImporter } from "@/components/QRImporter";
 import { logUserAccess, logAdminAction } from "@/lib/access-logs";
@@ -110,21 +118,6 @@ async function generateTOTP(secret: string): Promise<string> {
   }
 }
 
-// Função para validar token com múltiplas tentativas de tempo
-async function validateTOTP(
-  secret: string,
-  userToken: string
-): Promise<boolean> {
-  try {
-    // Para validação, vamos gerar o token atual e comparar
-    const currentToken = await generateTOTP(secret);
-    return currentToken === userToken;
-  } catch (error) {
-    console.error("Erro na validação TOTP:", error);
-    return false;
-  }
-}
-
 // Função para calcular tempo restante
 function getTimeRemaining(): number {
   const now = Math.floor(Date.now() / 1000);
@@ -171,62 +164,34 @@ export default function DashboardPage() {
   const auth = useAuth();
   const { user, userData, logout } = auth;
 
-  // Função para salvar companies no Firestore (dados compartilhados)
-  const saveCompaniesToFirestore = async (companiesData: any) => {
+  // Função para carregar companies do Firestore (dados compartilhados) - agora usando onSnapshot
+  useEffect(() => {
     if (!user) return;
-
-    // Verificar se o usuário é admin antes de salvar
-    if (!userData || userData.role !== "admin") {
-      toast({
-        title: "Acesso Negado",
-        description: "Apenas administradores podem modificar as seguradoras",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    try {
-      await setDoc(doc(db, "global-companies", "data"), {
-        companies: companiesData,
-        updatedAt: new Date().toISOString(),
-        updatedBy: user.uid,
-      });
-    } catch (error) {
-      console.error("Erro ao salvar no Firestore:", error);
-      toast({
-        title: "Erro",
-        description: "Erro ao salvar dados no servidor",
-        variant: "destructive",
-      });
-    }
-  };
-
-  // Função para carregar companies do Firestore (dados compartilhados)
-  const loadCompaniesFromFirestore = async () => {
-    if (!user) return;
-
-    try {
-      const docRef = doc(db, "global-companies", "data");
-      const docSnap = await getDoc(docRef);
-
-      if (docSnap.exists()) {
-        const data = docSnap.data();
+    setLoading(true);
+    // Listener em tempo real
+    const unsubscribe = onSnapshot(
+      collection(db, "companies"),
+      (querySnapshot) => {
+        const companiesList: any[] = [];
+        querySnapshot.forEach((doc) => {
+          companiesList.push({ id: doc.id, ...doc.data() });
+        });
         // Ordenar companies por nome
-        const companiesSorted = (data.companies || []).sort((a: any, b: any) => a.name.localeCompare(b.name));
+        const companiesSorted = companiesList.sort((a: any, b: any) =>
+          a.name.localeCompare(b.name)
+        );
         setCompanies(companiesSorted);
-      } else {
+        setLoading(false);
+      },
+      (error) => {
+        console.error("Erro ao carregar do Firestore:", error);
         setCompanies([]);
-        if (userData?.role === "admin") {
-          await saveCompaniesToFirestore([]);
-        }
+        setLoading(false);
       }
-    } catch (error) {
-      console.error("Erro ao carregar do Firestore:", error);
-      setCompanies([]);
-    } finally {
-      setLoading(false);
-    }
-  };
+    );
+    // Limpar listener ao desmontar
+    return () => unsubscribe();
+  }, [user]);
 
   // Estado para rastrear se o log de acesso já foi registrado nesta sessão
   const [accessLogged, setAccessLogged] = useState(false);
@@ -235,8 +200,6 @@ export default function DashboardPage() {
   // Carregar dados quando usuário e userData estiverem disponíveis
   useEffect(() => {
     if (user && userData) {
-      loadCompaniesFromFirestore();
-
       // Verificar se o usuário mudou (diferente do último usuário logado)
       const currentUserId = user.uid;
       if (lastLoggedUserId !== currentUserId) {
@@ -244,7 +207,6 @@ export default function DashboardPage() {
         setAccessLogged(false);
         setLastLoggedUserId(currentUserId);
       }
-
       // Registrar log de acesso ao dashboard apenas uma vez por sessão por usuário
       if (!accessLogged) {
         logUserAccess(
@@ -314,50 +276,51 @@ export default function DashboardPage() {
     }
   };
 
-  const [isCheckingEmails, setIsCheckingEmails] = useState(false);
+  const [checkingEmails, setCheckingEmails] = useState<{
+    [key: string]: boolean;
+  }>({});
 
-  const handleUpdateEmailCodes = async (companyEmail: string, companyReceiverEmail: string, companyReceiverEmailPassword: string) => {
+  const handleUpdateEmailCodes = async (
+    companyName: string,
+    companyEmail: string,
+    companyReceiverEmail: string,
+    companyReceiverEmailPassword: string
+  ) => {
     try {
-      setIsCheckingEmails(true);
-
-      // Mostrar loading
+      setCheckingEmails((prev) => ({ ...prev, [companyName]: true }));
       toast({
         title: "Verificando e-mails...",
         description: "Aguarde enquanto verificamos novos códigos.",
       });
-
-      // Chamar a Cloud Function
       const response = await fetch("/api/check-emails", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ companyEmail, companyReceiverEmail, companyReceiverEmailPassword }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          companyEmail,
+          companyReceiverEmail,
+          companyReceiverEmailPassword,
+          companyName,
+        }),
       });
-
       if (!response.ok) {
         throw new Error(`Erro na requisição: ${response.status}`);
       }
-
-      const result = await response.json();
-
+      await response.json();
       toast({
         title: "Verificação concluída!",
-        description: "Os e-mails foram verificados com sucesso.",
+        description: "O e-mail foi verificado com sucesso.",
       });
-
-      // Recarregar os códigos se necessário
       await updateCodes();
+      // Remover a função saveCompaniesToFirestore e todas as chamadas a ela
     } catch (error) {
       console.error("Erro ao verificar e-mails:", error);
-
       toast({
         title: "Erro na verificação",
         description: "Não foi possível verificar os e-mails. Tente novamente.",
         variant: "destructive",
       });
     } finally {
-      setIsCheckingEmails(false);
+      setCheckingEmails((prev) => ({ ...prev, [companyName]: false }));
     }
   };
 
@@ -404,6 +367,7 @@ export default function DashboardPage() {
     setShowSecretModal(true);
   };
 
+  // Função para editar seguradora
   const saveEditCompany = async () => {
     if (!userData || userData.role !== "admin") {
       toast({
@@ -413,8 +377,24 @@ export default function DashboardPage() {
       });
       return;
     }
-    const { name, fullName, secret, color, authType, email, receiverEmail, logo, receiverEmailPassword } = editCompanyData;
-    if (!name.trim() || !fullName.trim() || !color || (editLogoFile === null && !logo)) {
+    const {
+      id,
+      name,
+      fullName,
+      secret,
+      color,
+      authType,
+      email,
+      receiverEmail,
+      logo,
+      receiverEmailPassword,
+    } = editCompanyData;
+    if (
+      !name.trim() ||
+      !fullName.trim() ||
+      !color ||
+      (editLogoFile === null && !logo)
+    ) {
       toast({
         title: "Erro",
         description: "Preencha todos os campos obrigatórios.",
@@ -430,7 +410,12 @@ export default function DashboardPage() {
       });
       return;
     }
-    if (authType === "email" && (!email?.trim() || !receiverEmail?.trim() || !receiverEmailPassword?.trim())) {
+    if (
+      authType === "email" &&
+      (!email?.trim() ||
+        !receiverEmail?.trim() ||
+        !receiverEmailPassword?.trim())
+    ) {
       toast({
         title: "Erro",
         description: "Preencha todos os campos de e-mail e senha.",
@@ -443,7 +428,8 @@ export default function DashboardPage() {
       try {
         cleanSecret = normalizeSecret(secret);
       } catch (error: unknown) {
-        const errorMessage = error instanceof Error ? error.message : "Formato inválido";
+        const errorMessage =
+          error instanceof Error ? error.message : "Formato inválido";
         toast({
           title: "Erro",
           description: `Secret inválido: ${errorMessage}`,
@@ -454,7 +440,8 @@ export default function DashboardPage() {
       if (!testSecret(cleanSecret)) {
         toast({
           title: "Erro",
-          description: "Secret inválido. Verifique se está no formato correto e se gera um código 6 dígitos.",
+          description:
+            "Secret inválido. Verifique se está no formato correto e se gera um código 6 dígitos.",
           variant: "destructive",
         });
         return;
@@ -463,7 +450,10 @@ export default function DashboardPage() {
     let logoUrl = logo;
     if (editLogoFile) {
       try {
-        const storageRef = ref(storage, `company-logos/${name.trim()}-${Date.now()}`);
+        const storageRef = ref(
+          storage,
+          `company-logos/${name.trim()}-${Date.now()}`
+        );
         await uploadBytes(storageRef, editLogoFile);
         logoUrl = await getDownloadURL(storageRef);
       } catch (error) {
@@ -474,32 +464,20 @@ export default function DashboardPage() {
         });
       }
     }
-    const updatedCompanies = companies.map((company) =>
-      company.name === editingCompany.name
-        ? {
-            ...company,
-            name: name.trim(),
-            fullName: fullName.trim(),
-            secret: authType === "totp" ? cleanSecret : "",
-            color,
-            logo: logoUrl,
-            authType,
-            email: authType === "email" ? email?.trim() : "",
-            receiverEmail: authType === "email" ? receiverEmail?.trim() : "",
-            receiverEmailPassword: authType === "email" ? receiverEmailPassword?.trim() : "",
-          }
-        : company
-    );
-    setCompanies(updatedCompanies);
-    await saveCompaniesToFirestore(updatedCompanies);
-    if (user && userData) {
-      await logAdminAction(
-        user.uid,
-        userData.email || user.email || "",
-        "edit_company",
-        name.trim()
-      );
-    }
+    const updatedData = {
+      name: name.trim(),
+      fullName: fullName.trim(),
+      secret: authType === "totp" ? cleanSecret : "",
+      color,
+      logo: logoUrl,
+      authType,
+      email: authType === "email" ? email?.trim() : "",
+      receiverEmail: authType === "email" ? receiverEmail?.trim() : "",
+      receiverEmailPassword:
+        authType === "email" ? receiverEmailPassword?.trim() : "",
+    };
+    await updateDoc(firestoreDoc(db, "companies", id), updatedData);
+    // Remover a função saveCompaniesToFirestore e todas as chamadas a ela
     setShowSecretModal(false);
     setEditingCompany(null);
     setEditCompanyData(null);
@@ -528,7 +506,7 @@ export default function DashboardPage() {
     }
 
     setCompanies([]);
-    await saveCompaniesToFirestore([]);
+    // Remover a função saveCompaniesToFirestore e todas as chamadas a ela
     toast({
       title: "Secrets resetados!",
       description: "Todos os secrets foram restaurados aos valores padrão",
@@ -570,8 +548,17 @@ export default function DashboardPage() {
       });
       return;
     }
-
-    const { name, fullName, secret, color, email, receiverEmail, logoFile, authType, receiverEmailPassword } = newCompanyData;
+    const {
+      name,
+      fullName,
+      secret,
+      color,
+      email,
+      receiverEmail,
+      logoFile,
+      authType,
+      receiverEmailPassword,
+    } = newCompanyData;
 
     // Validação obrigatória para todos os campos
     if (!name.trim() || !fullName.trim() || !color || !logoFile) {
@@ -592,7 +579,10 @@ export default function DashboardPage() {
       return;
     }
 
-    if (authType === "email" && (!email.trim() || !receiverEmail.trim() || !receiverEmailPassword?.trim())) {
+    if (
+      authType === "email" &&
+      (!email.trim() || !receiverEmail.trim() || !receiverEmailPassword?.trim())
+    ) {
       toast({
         title: "Erro",
         description: "Preencha todos os campos de e-mail e senha.",
@@ -641,7 +631,7 @@ export default function DashboardPage() {
       }
     }
 
-    let logoUrl = "/placeholder-logo.png";
+    let logoUrl = "";
     if (logoFile) {
       try {
         const storageRef = ref(
@@ -653,10 +643,9 @@ export default function DashboardPage() {
       } catch (error) {
         toast({
           title: "Erro ao fazer upload da imagem",
-          description: "A seguradora será criada com o logo padrão.",
+          description: "A seguradora será criada sem logo.",
           variant: "destructive",
         });
-        logoUrl = "/placeholder-logo.png";
       }
     }
 
@@ -671,26 +660,23 @@ export default function DashboardPage() {
       receiverEmail: authType === "email" ? receiverEmail.trim() : "",
       receiverEmailPassword: authType === "email" ? receiverEmailPassword : "",
     };
-
-    const updatedCompanies = [...companies, newCompany];
-    setCompanies(updatedCompanies);
-    await saveCompaniesToFirestore(updatedCompanies);
-
-    // Registrar ação de admin
-    if (user && userData) {
-      await logAdminAction(
-        user.uid,
-        userData.email || user.email || "",
-        "add_company",
-        newCompany.name
-      );
-    }
-
+    await addDoc(collection(db, "companies"), newCompany);
+    // Remover a função saveCompaniesToFirestore e todas as chamadas a ela
     setShowAddCompanyModal(false);
-
+    setNewCompanyData({
+      name: "",
+      fullName: "",
+      secret: "",
+      color: "#6600CC",
+      authType: "totp" as "totp" | "email",
+      email: "",
+      receiverEmail: "",
+      receiverEmailPassword: "",
+      logoFile: null,
+    });
     toast({
       title: "Seguradora adicionada!",
-      description: `${newCompany.name} foi adicionada com sucesso`,
+      description: `${name} foi adicionada com sucesso`,
     });
   };
 
@@ -711,7 +697,7 @@ export default function DashboardPage() {
   };
 
   // Função para remover seguradora
-  const removeCompany = async (companyName: string) => {
+  const removeCompany = async (companyId: string) => {
     if (!userData || userData.role !== "admin") {
       toast({
         title: "Acesso Negado",
@@ -731,25 +717,11 @@ export default function DashboardPage() {
       return;
     }
 
-    const updatedCompanies = companies.filter(
-      (company) => company.name !== companyName
-    );
-    setCompanies(updatedCompanies);
-    await saveCompaniesToFirestore(updatedCompanies);
-
-    // Registrar ação de admin
-    if (user && userData) {
-      await logAdminAction(
-        user.uid,
-        userData.email || user.email || "",
-        "remove_company",
-        companyName
-      );
-    }
-
+    await deleteDoc(firestoreDoc(db, "companies", companyId));
+    // Remover a função saveCompaniesToFirestore e todas as chamadas a ela
     toast({
       title: "Seguradora removida!",
-      description: `${companyName} foi removida do sistema`,
+      description: `A seguradora foi removida do sistema`,
     });
   };
 
@@ -815,7 +787,7 @@ export default function DashboardPage() {
       ];
 
       setCompanies(updatedCompanies);
-      await saveCompaniesToFirestore(updatedCompanies);
+      // Remover a função saveCompaniesToFirestore e todas as chamadas a ela
 
       toast({
         title: "Importação concluída!",
@@ -883,10 +855,10 @@ export default function DashboardPage() {
               />
               <div>
                 <h1 className="text-xl font-bold text-[#6600CC]">
-                  Avantar Authenticator
+                  Avantar ID
                 </h1>
                 <p className="text-sm text-gray-500">
-                  Sistema de autenticação 2FA
+                  Sistema de autenticação de dois fatores
                 </p>
               </div>
             </div>
@@ -1055,6 +1027,26 @@ export default function DashboardPage() {
                       : company.code || "------"}
                   </span>
                 </div>
+                {company.authType === "email" && company.receivedAt && (
+                  <div className="mt-2 text-xs text-gray-500">
+                    {(() => {
+                      let dateObj;
+                      if (company.receivedAt.seconds) {
+                        // Firestore Timestamp
+                        dateObj = new Date(company.receivedAt.seconds * 1000);
+                      } else {
+                        // ISO string ou Date
+                        dateObj = new Date(company.receivedAt);
+                      }
+                      const dataFormatada = dateObj.toLocaleDateString("pt-BR");
+                      const horaFormatada = dateObj.toLocaleTimeString(
+                        "pt-BR",
+                        { hour: "2-digit", minute: "2-digit" }
+                      );
+                      return `Atualizado em: ${dataFormatada} ${horaFormatada}`;
+                    })()}
+                  </div>
+                )}
                 {isAdmin && company.secret && (
                   <div className="mt-2 text-xs text-gray-500">
                     <div>Secret: {company.secret.substring(0, 8)}...</div>
@@ -1072,7 +1064,12 @@ export default function DashboardPage() {
                   variant="outline"
                   size="sm"
                   onClick={() =>
-                    copyToClipboard(codes[company.name] || "", company.name)
+                    copyToClipboard(
+                      company.authType === "totp"
+                        ? codes[company.name] || ""
+                        : company.code || "",
+                      company.name
+                    )
                   }
                   className="border-[#6600CC]/20 text-[#6600CC] hover:bg-[#6600CC] hover:text-white hover:border-[#6600CC] rounded-full px-4 transition-all duration-200"
                 >
@@ -1083,10 +1080,17 @@ export default function DashboardPage() {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => handleUpdateEmailCodes(company.email, company.receiverEmail, company.receiverEmailPassword)}
+                    onClick={() =>
+                      handleUpdateEmailCodes(
+                        company.name,
+                        company.email,
+                        company.receiverEmail,
+                        company.receiverEmailPassword
+                      )
+                    }
                     className="border-green-600 rounded-full text-green-600 hover:bg-green-600 hover:text-white"
                   >
-                    {isCheckingEmails ? (
+                    {checkingEmails[company.name] ? (
                       <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                     ) : (
                       <Mail className="h-4 w-4 mr-2" />
@@ -1108,7 +1112,7 @@ export default function DashboardPage() {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => removeCompany(company.name)}
+                      onClick={() => removeCompany(company.id)}
                       className="border-red-200 text-red-600 hover:bg-red-50 hover:border-red-300 rounded-full px-4 transition-all duration-200"
                     >
                       <Trash2 className="h-4 w-4" />
@@ -1139,11 +1143,18 @@ export default function DashboardPage() {
           {editCompanyData && (
             <div className="grid gap-6 py-4">
               <div className="space-y-2">
-                <Label htmlFor="editAuthType" className="font-medium">Tipo de Autenticação:</Label>
+                <Label htmlFor="editAuthType" className="font-medium">
+                  Tipo de Autenticação:
+                </Label>
                 <select
                   id="editAuthType"
                   value={editCompanyData.authType}
-                  onChange={e => setEditCompanyData({ ...editCompanyData, authType: e.target.value })}
+                  onChange={(e) =>
+                    setEditCompanyData({
+                      ...editCompanyData,
+                      authType: e.target.value,
+                    })
+                  }
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#6600CC] focus:border-transparent"
                 >
                   <option value="totp">TOTP MFA</option>
@@ -1152,42 +1163,132 @@ export default function DashboardPage() {
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="editName" className="font-medium">Nome da Seguradora:</Label>
-                  <Input id="editName" value={editCompanyData.name} onChange={e => setEditCompanyData({ ...editCompanyData, name: e.target.value })} placeholder="Ex: AIG" />
+                  <Label htmlFor="editName" className="font-medium">
+                    Nome da Seguradora:
+                  </Label>
+                  <Input
+                    id="editName"
+                    value={editCompanyData.name}
+                    onChange={(e) =>
+                      setEditCompanyData({
+                        ...editCompanyData,
+                        name: e.target.value,
+                      })
+                    }
+                    placeholder="Ex: AIG"
+                  />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="editFullName" className="font-medium">Nome Completo:</Label>
-                  <Input id="editFullName" value={editCompanyData.fullName} onChange={e => setEditCompanyData({ ...editCompanyData, fullName: e.target.value })} placeholder="Ex: American International Group" />
+                  <Label htmlFor="editFullName" className="font-medium">
+                    Nome Completo:
+                  </Label>
+                  <Input
+                    id="editFullName"
+                    value={editCompanyData.fullName}
+                    onChange={(e) =>
+                      setEditCompanyData({
+                        ...editCompanyData,
+                        fullName: e.target.value,
+                      })
+                    }
+                    placeholder="Ex: American International Group"
+                  />
                 </div>
                 {editCompanyData.authType === "totp" && (
                   <div className="space-y-2">
-                    <Label htmlFor="editSecret" className="font-medium">Secret 2FA:</Label>
-                    <Input id="editSecret" value={editCompanyData.secret} onChange={e => setEditCompanyData({ ...editCompanyData, secret: e.target.value })} placeholder="Ex: JBSWY3DPEHPK3PXP" className="font-mono" />
-                    <p className="text-xs text-gray-500">Formato: Base32 (A-Z, 2-7), mínimo 16 caracteres</p>
+                    <Label htmlFor="editSecret" className="font-medium">
+                      Secret 2FA:
+                    </Label>
+                    <Input
+                      id="editSecret"
+                      value={editCompanyData.secret}
+                      onChange={(e) =>
+                        setEditCompanyData({
+                          ...editCompanyData,
+                          secret: e.target.value,
+                        })
+                      }
+                      placeholder="Ex: JBSWY3DPEHPK3PXP"
+                      className="font-mono"
+                    />
+                    <p className="text-xs text-gray-500">
+                      Formato: Base32 (A-Z, 2-7), mínimo 16 caracteres
+                    </p>
                   </div>
                 )}
                 <div className="space-y-2">
-                  <Label htmlFor="editColor" className="font-medium">Cor do tema:</Label>
-                  <Input type="color" id="editColor" value={editCompanyData.color} onChange={e => setEditCompanyData({ ...editCompanyData, color: e.target.value })} />
+                  <Label htmlFor="editColor" className="font-medium">
+                    Cor do tema:
+                  </Label>
+                  <Input
+                    type="color"
+                    id="editColor"
+                    value={editCompanyData.color}
+                    onChange={(e) =>
+                      setEditCompanyData({
+                        ...editCompanyData,
+                        color: e.target.value,
+                      })
+                    }
+                  />
                 </div>
                 {editCompanyData.authType === "email" && (
                   <>
                     <div className="space-y-2">
-                      <Label htmlFor="editEmail" className="font-medium">E-mail da Seguradora:</Label>
-                      <Input id="editEmail" type="email" value={editCompanyData.email} onChange={e => setEditCompanyData({ ...editCompanyData, email: e.target.value })} placeholder="Ex: noreply@seguradora.com" />
+                      <Label htmlFor="editEmail" className="font-medium">
+                        E-mail da Seguradora:
+                      </Label>
+                      <Input
+                        id="editEmail"
+                        type="email"
+                        value={editCompanyData.email}
+                        onChange={(e) =>
+                          setEditCompanyData({
+                            ...editCompanyData,
+                            email: e.target.value,
+                          })
+                        }
+                        placeholder="Ex: noreply@seguradora.com"
+                      />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="editReceiverEmail" className="font-medium">E-mail que receberá o código:</Label>
-                      <Input id="editReceiverEmail" type="email" value={editCompanyData.receiverEmail} onChange={e => setEditCompanyData({ ...editCompanyData, receiverEmail: e.target.value })} placeholder="Ex: contato@avantar.com.br" />
+                      <Label
+                        htmlFor="editReceiverEmail"
+                        className="font-medium"
+                      >
+                        E-mail que receberá o código:
+                      </Label>
+                      <Input
+                        id="editReceiverEmail"
+                        type="email"
+                        value={editCompanyData.receiverEmail}
+                        onChange={(e) =>
+                          setEditCompanyData({
+                            ...editCompanyData,
+                            receiverEmail: e.target.value,
+                          })
+                        }
+                        placeholder="Ex: contato@avantar.com.br"
+                      />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="editReceiverEmailPassword" className="font-medium">Senha do e-mail que receberá o código:</Label>
+                      <Label
+                        htmlFor="editReceiverEmailPassword"
+                        className="font-medium"
+                      >
+                        Senha do e-mail que receberá o código:
+                      </Label>
                       <div className="relative">
                         <Input
                           id="editReceiverEmailPassword"
                           type={showEditCompanyPassword ? "text" : "password"}
                           value={editCompanyData.receiverEmailPassword || ""}
-                          onChange={e => setEditCompanyData({ ...editCompanyData, receiverEmailPassword: e.target.value })}
+                          onChange={(e) =>
+                            setEditCompanyData({
+                              ...editCompanyData,
+                              receiverEmailPassword: e.target.value,
+                            })
+                          }
                           placeholder="Digite a senha do e-mail"
                         />
                         <button
@@ -1207,16 +1308,36 @@ export default function DashboardPage() {
                   </>
                 )}
                 <div className="space-y-2">
-                  <Label htmlFor="editLogo" className="font-medium">Logo da Seguradora:</Label>
-                  <Input id="editLogo" type="file" accept="image/*" onChange={e => setEditLogoFile(e.target.files?.[0] || null)} />
+                  <Label htmlFor="editLogo" className="font-medium">
+                    Logo da Seguradora:
+                  </Label>
+                  <Input
+                    id="editLogo"
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) =>
+                      setEditLogoFile(e.target.files?.[0] || null)
+                    }
+                  />
                   {editCompanyData.logo && (
-                    <div className="mt-2"><img src={editCompanyData.logo} alt="Logo atual" className="h-12" /></div>
+                    <div className="mt-2">
+                      <img
+                        src={editCompanyData.logo}
+                        alt="Logo atual"
+                        className="h-12"
+                      />
+                    </div>
                   )}
                 </div>
               </div>
               {editCompanyData.authType === "totp" && (
                 <div className="text-sm">
-                  {testSecret(editCompanyData.secret?.trim()?.toUpperCase()?.replace(/\s/g, "")) ? (
+                  {testSecret(
+                    editCompanyData.secret
+                      ?.trim()
+                      ?.toUpperCase()
+                      ?.replace(/\s/g, "")
+                  ) ? (
                     <div className="flex items-center gap-2 text-green-600">
                       <div className="w-2 h-2 bg-green-500 rounded-full"></div>
                       <span>Secret válido - gerará códigos reais</span>
@@ -1232,7 +1353,9 @@ export default function DashboardPage() {
             </div>
           )}
           <DialogFooter>
-            <Button variant="outline" onClick={closeEditModal}>Cancelar</Button>
+            <Button variant="outline" onClick={closeEditModal}>
+              Cancelar
+            </Button>
             <Button
               onClick={saveEditCompany}
               disabled={
@@ -1240,10 +1363,22 @@ export default function DashboardPage() {
                 !editCompanyData?.fullName?.trim() ||
                 !editCompanyData?.color ||
                 (!editLogoFile && !editCompanyData?.logo) ||
-                (editCompanyData?.authType === "totp" && (!editCompanyData?.secret?.trim() || !testSecret(editCompanyData.secret.trim().toUpperCase().replace(/\s/g, "")))) ||
-                (editCompanyData?.authType === "email" && (!editCompanyData?.email?.trim() || !editCompanyData?.receiverEmail?.trim() || !editCompanyData?.receiverEmailPassword?.trim()))
+                (editCompanyData?.authType === "totp" &&
+                  (!editCompanyData?.secret?.trim() ||
+                    !testSecret(
+                      editCompanyData.secret
+                        .trim()
+                        .toUpperCase()
+                        .replace(/\s/g, "")
+                    ))) ||
+                (editCompanyData?.authType === "email" &&
+                  (!editCompanyData?.email?.trim() ||
+                    !editCompanyData?.receiverEmail?.trim() ||
+                    !editCompanyData?.receiverEmailPassword?.trim()))
               }
-            >Salvar Alterações</Button>
+            >
+              Salvar Alterações
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1403,7 +1538,10 @@ export default function DashboardPage() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="newCompanyReceiverEmail" className="font-medium">
+                    <Label
+                      htmlFor="newCompanyReceiverEmail"
+                      className="font-medium"
+                    >
                       E-mail que receberá o código:
                     </Label>
                     <Input
@@ -1420,7 +1558,10 @@ export default function DashboardPage() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="newCompanyReceiverEmailPassword" className="font-medium">
+                    <Label
+                      htmlFor="newCompanyReceiverEmailPassword"
+                      className="font-medium"
+                    >
                       Senha do e-mail que receberá o código:
                     </Label>
                     <div className="relative">
@@ -1498,8 +1639,18 @@ export default function DashboardPage() {
                 !newCompanyData.fullName.trim() ||
                 !newCompanyData.color ||
                 !newCompanyData.logoFile ||
-                (newCompanyData.authType === "totp" && (!newCompanyData.secret.trim() || !testSecret(newCompanyData.secret.trim().toUpperCase().replace(/\s/g, "")))) ||
-                (newCompanyData.authType === "email" && (!newCompanyData.email.trim() || !newCompanyData.receiverEmail.trim() || !newCompanyData.receiverEmailPassword?.trim()))
+                (newCompanyData.authType === "totp" &&
+                  (!newCompanyData.secret.trim() ||
+                    !testSecret(
+                      newCompanyData.secret
+                        .trim()
+                        .toUpperCase()
+                        .replace(/\s/g, "")
+                    ))) ||
+                (newCompanyData.authType === "email" &&
+                  (!newCompanyData.email.trim() ||
+                    !newCompanyData.receiverEmail.trim() ||
+                    !newCompanyData.receiverEmailPassword?.trim()))
               }
             >
               Adicionar Seguradora

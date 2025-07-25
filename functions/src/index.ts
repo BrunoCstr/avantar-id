@@ -9,9 +9,10 @@ admin.initializeApp();
 export function checkEmails(
   onSuccess: (msg: string) => void,
   onError: (err: any) => void,
+  companyName: string,
   companyEmail: string,
   companyReceiverEmail: string,
-  companyReceiverEmailPassword: string,
+  companyReceiverEmailPassword: string
 ) {
   const allowedSenders = [companyEmail];
 
@@ -50,7 +51,10 @@ export function checkEmails(
       const searchBySender = allowedSenders.map((sender) => {
         return new Promise<void>((resolveSearch, rejectSearch) => {
           imap.search(
-            ["UNSEEN", ["SINCE", todayString], ["FROM", sender]],
+            [
+              ["SINCE", todayString],
+              ["FROM", sender],
+            ],
             function (err: any, results: any) {
               if (err) {
                 console.error(`IMAP search error for ${sender}:`, err);
@@ -62,72 +66,95 @@ export function checkEmails(
                 return;
               }
 
-              const f = imap.fetch(results, { bodies: "" });
+              // Ordena os resultados para pegar o e-mail mais recente
+              const sortedResults = results.sort(
+                (a: number, b: number) => b - a
+              );
+              const latestResult = sortedResults[0];
+
+              const f = imap.fetch([latestResult], { bodies: "" });
               f.on("message", function (msg: any) {
                 msg.on("body", function (stream: any) {
                   simpleParser(stream)
                     .then(async (parsed: any) => {
                       const senderEmail = parsed.from?.value?.[0]?.address;
                       if (!allowedSenders.includes(senderEmail)) {
-                        console.log("Email ignored from:", senderEmail);
                         return;
                       }
-                      const { text } = parsed;
-                      const code = text?.match(/\b\d{6}\b/);
+                      const { text, html } = parsed;
+                      let code = text?.match(/\b\d{6,10}\b/);
+
+                      if (!code && html) {
+                        // Remove todo o conteúdo das tags <style>, pq pode conter hexadecimais etc...
+                        let htmlClean = html.replace(
+                          /<style[^>]*>[\s\S]*?<\/style>/gi,
+                          " "
+                        );
+                        // Remove tags HTML
+                        htmlClean = htmlClean.replace(/<[^>]+>/g, " ");
+                        // Remove qualquer atributo do tipo nome="..." ou nome='...' faço para isso para remover src, id, class, href etc...
+                        htmlClean = htmlClean.replace(
+                          /\b\w+=("|')[^"']*\1/gi,
+                          " "
+                        );
+                        code = htmlClean.match(/\b\d{6,10}\b/);
+                      }
                       if (code) {
-                        const snapshot = await admin
-                          .firestore()
-                          .collection("email-codes")
-                          .where("sender", "==", senderEmail)
-                          .get();
-                        if (snapshot.empty) {
-                          await admin
+                        try {
+                          // Buscar o documento da seguradora na coleção 'companies' (nova estrutura)
+                          const companiesRef = admin
                             .firestore()
-                            .collection("email-codes")
-                            .add({
-                              name: "Justos",
-                              code: code[0],
-                              sender: senderEmail,
-                              receivedAt:
-                                admin.firestore.FieldValue.serverTimestamp(),
-                            });
-                          console.log(
-                            "Code saved:",
-                            code[0],
-                            "from:",
-                            senderEmail
-                          );
-                          finish("Code saved successfully.");
-                          resolveSearch();
-                          return;
-                        } else {
-                          const doc = snapshot.docs[0];
-                          const data = doc.data();
-                          if (data.code !== code[0]) {
-                            await doc.ref.update({
-                              code: code[0],
-                              receivedAt: admin.firestore.FieldValue.serverTimestamp(),
-                            });
-                            console.log(
-                              "Code updated:",
-                              code[0],
-                              "from:",
-                              senderEmail
-                            );
-                            finish("Code updated successfully.");
-                            resolveSearch();
-                            return;
-                          } else {
-                            console.log(
-                              "Code already exists and is the same:",
-                              code[0],
-                              "from:",
-                              senderEmail
-                            );
-                            finish("Code already exists.");
+                            .collection("companies");
+                          const querySnap = await companiesRef
+                            .where("name", "==", companyName)
+                            .get();
+                          if (querySnap.empty) {
+                            finish("Seguradora não encontrada");
                             resolveSearch();
                             return;
                           }
+                          const companyDoc = querySnap.docs[0];
+                          const company = companyDoc.data();
+
+                          if (!companyDoc.exists) {
+                            finish("Documento não encontrado");
+                            resolveSearch();
+                            return;
+                          }
+
+                          // Se não existir o campo code OU se o código for diferente, atualiza o documento individual
+                          if (!company.code || company.code !== code[0]) {
+                            try {
+                              await companiesRef.doc(companyDoc.id).update({
+                                code: code[0],
+                                receivedAt:
+                                  admin.firestore.FieldValue.serverTimestamp(),
+                              });
+                              finish("Code updated/criado successfully.");
+                              resolveSearch();
+                              return;
+                            } catch (updateErr) {
+                              console.error(
+                                "Erro ao atualizar o código no Firestore:",
+                                updateErr
+                              );
+                              finish(undefined, updateErr);
+                              resolveSearch();
+                              return;
+                            }
+                          } else {
+                            finish("Code já existe.");
+                            resolveSearch();
+                            return;
+                          }
+                        } catch (queryErr) {
+                          console.error(
+                            "Erro na query do Firestore:",
+                            queryErr
+                          );
+                          finish(undefined, queryErr);
+                          resolveSearch();
+                          return;
                         }
                       }
                     })
@@ -138,7 +165,9 @@ export function checkEmails(
                     });
                 });
               });
-              f.once("end", () => resolveSearch());
+              f.once("end", () => {
+                resolveSearch();
+              });
             }
           );
         });
@@ -155,7 +184,7 @@ export function checkEmails(
   });
 
   imap.once("error", function (err: any) {
-    console.log(err);
+    console.log("IMAP error:", err);
     finish(undefined, err);
   });
 
@@ -183,7 +212,14 @@ export const checkEmailsManual = onRequest(
       }
     }
     try {
-      checkEmails( onSuccess, onError, req.body.companyEmail, req.body.companyReceiverEmail, req.body.companyReceiverEmailPassword);
+      checkEmails(
+        onSuccess,
+        onError,
+        req.body.companyName,
+        req.body.companyEmail,
+        req.body.companyReceiverEmail,
+        req.body.companyReceiverEmailPassword
+      );
     } catch (error) {
       onError(error);
     }
