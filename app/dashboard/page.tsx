@@ -1417,7 +1417,7 @@ export default function DashboardPage() {
                   necessário, caso queira entender melhor porquê,{" "}
                   <a
                     className="text-[#E06400] hover:text-[#E06400]  font-bold"
-                    href="https://github.com/BrunoCstr/2fa-app-avantar/README.md"
+                    href="https://github.com/BrunoCstr/2fa-app-avantar/blob/main/README-DEV.md"
                     target="_blank"
                     rel="noopener noreferrer"
                   >
