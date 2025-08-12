@@ -34,6 +34,7 @@ interface AuthContextType {
   register: (email: string, password: string, name?: string, role?: 'admin' | 'user') => Promise<void>
   resetPassword: (email: string) => Promise<void>
   updateUserRole: (uid: string, role: 'admin' | 'user') => Promise<void>
+  sessionReady: boolean
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -51,6 +52,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [userData, setUserData] = useState<UserData | null>(null)
   const [loading, setLoading] = useState(true)
   const [isClient, setIsClient] = useState(false)
+  const [sessionReady, setSessionReady] = useState(false)
   const router = useRouter()
 
   // Verificar se estamos no cliente e configurar Firebase Auth
@@ -118,12 +120,46 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           
           setUser(firebaseUser)
           
-          // Buscar dados do usuário no Firestore
-          const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid))
-          if (userDoc.exists()) {
-            setUserData(userDoc.data() as UserData)
-          } else {
+          // Buscar dados do usuário no Firestore e criar se não existir
+          try {
+            const userRef = doc(db, 'users', firebaseUser.uid)
+            const userSnap = await getDoc(userRef)
+            if (userSnap.exists()) {
+              setUserData(userSnap.data() as UserData)
+            } else {
+              const defaultUserData: UserData = {
+                uid: firebaseUser.uid,
+                email: firebaseUser.email || '',
+                name: firebaseUser.displayName || undefined,
+                role: 'user',
+                createdAt: new Date().toISOString(),
+                status: 'active'
+              }
+              await setDoc(userRef, defaultUserData, { merge: true })
+              setUserData(defaultUserData)
+            }
+          } catch (firestoreError) {
+            console.error('Falha ao acessar/criar userData no Firestore:', firestoreError)
             setUserData(null)
+          }
+
+          // Garantir que o cookie de sessão no servidor está criado/atualizado
+          if (!sessionReady) {
+            try {
+              const idToken = await firebaseUser.getIdToken(true)
+              const resp = await fetch('/api/auth/session', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ idToken }),
+              })
+              if (resp.ok) {
+                setSessionReady(true)
+              } else {
+                console.error('Falha ao criar cookie de sessão: ', await resp.text())
+              }
+            } catch (ensureError) {
+              console.error('Erro ao garantir cookie de sessão:', ensureError)
+            }
           }
         } catch (error: any) {
           console.error('Erro ao verificar token do usuário:', error)
@@ -139,6 +175,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } else {
         setUser(null)
         setUserData(null)
+        setSessionReady(false)
       }
       
       setLoading(false)
@@ -173,6 +210,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!sessionResponse.ok) {
         throw new Error('Erro ao criar sessão no servidor')
       }
+      setSessionReady(true)
       
     } catch (error: any) {
       console.error('Erro no login:', error)
@@ -194,6 +232,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             },
             body: JSON.stringify({ idToken: retryToken }),
           })
+          setSessionReady(true)
           
           return
         } catch (retryError: any) {
@@ -279,6 +318,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       user,
       userData,
       loading,
+      sessionReady,
       login,
       logout,
       register,

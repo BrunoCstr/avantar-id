@@ -20,14 +20,14 @@ export default function LoginPage() {
   const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)
   const router = useRouter()
-  const { user, userData, login } = useAuth()
+  const { user, userData, sessionReady, login } = useAuth()
 
   useEffect(() => {
-    // Se o usuário já está autenticado, redirecionar para dashboard
-    if (user && userData) {
+    // Redirecionar apenas quando existir usuário, dados e cookie de sessão pronto
+    if (user && userData && sessionReady) {
       router.push("/dashboard")
     }
-  }, [user, userData, router])
+  }, [user, userData, sessionReady, router])
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
