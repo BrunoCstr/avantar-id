@@ -82,7 +82,12 @@ export function checkEmails(
                         return;
                       }
                       const { text, html } = parsed;
-                      let code = text?.match(/\b\d{4,10}\b/);
+                      // Primeiro tenta capturar códigos com hífen e espaços (ex: 020 - 055)
+                      let code = text?.match(/\b\d{3}\s*-\s*\d{3}\b/);
+                      // Se não encontrar, busca códigos simples de 4-8 dígitos (evita números muito longos)
+                      if (!code) {
+                        code = text?.match(/\b\d{4,8}\b/);
+                      }
 
                       if (!code && html) {
                         // Remove todo o conteúdo das tags <style>, pq pode conter hexadecimais etc...
@@ -97,7 +102,12 @@ export function checkEmails(
                           /\b\w+=("|')[^"']*\1/gi,
                           " "
                         );
-                        code = htmlClean.match(/\b\d{6,10}\b/);
+                        // Primeiro tenta capturar códigos com hífen e espaços no HTML limpo
+                        code = htmlClean.match(/\b\d{3}\s*-\s*\d{3}\b/);
+                        // Se não encontrar, busca códigos simples de 4-8 dígitos
+                        if (!code) {
+                          code = htmlClean.match(/\b\d{4,8}\b/);
+                        }
                       }
                       if (code) {
                         try {
