@@ -17,10 +17,12 @@ import {
   Loader2,
   Eye,
   EyeOff,
+  X,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { LoadingScreen } from "@/components/ui/loading";
+import { CompanyData, getVisibleCompanies } from "@/lib/types";
 import {
   Dialog,
   DialogContent,
@@ -31,6 +33,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import Image from "next/image";
 import { Mail } from "lucide-react";
 
@@ -133,6 +136,8 @@ export default function DashboardPage() {
   const [showQRImportModal, setShowQRImportModal] = useState(false);
   const [editingCompany, setEditingCompany] = useState<any>(null);
   const [newSecret, setNewSecret] = useState("");
+  const [authTypeFilter, setAuthTypeFilter] = useState("all");
+  const [tagFilter, setTagFilter] = useState("all");
   const [newCompanyData, setNewCompanyData] = useState({
     name: "",
     fullName: "",
@@ -143,12 +148,13 @@ export default function DashboardPage() {
     receiverEmail: "",
     receiverEmailPassword: "",
     logoFile: null as File | null,
+    tags: [] as string[],
   });
-  const [companies, setCompanies] = useState<any[]>([]);
+  const [companies, setCompanies] = useState<CompanyData[]>([]);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
   const { toast } = useToast();
-  const [editCompanyData, setEditCompanyData] = useState<any>(null);
+  const [editCompanyData, setEditCompanyData] = useState<CompanyData | null>(null);
   const [editLogoFile, setEditLogoFile] = useState<File | null>(null);
 
   // 1. Adicionar estado para mostrar/ocultar senha
@@ -172,12 +178,19 @@ export default function DashboardPage() {
     const unsubscribe = onSnapshot(
       collection(db, "companies"),
       (querySnapshot) => {
-        const companiesList: any[] = [];
+        const companiesList: CompanyData[] = [];
         querySnapshot.forEach((doc) => {
-          companiesList.push({ id: doc.id, ...doc.data() });
+          const data = doc.data();
+          companiesList.push({ 
+            id: doc.id, 
+            ...data,
+            tags: data.tags || [],
+            isPrivate: data.isPrivate || false,
+            ownerId: data.ownerId || null
+          } as CompanyData);
         });
         // Ordenar companies por nome
-        const companiesSorted = companiesList.sort((a: any, b: any) =>
+        const companiesSorted = companiesList.sort((a: CompanyData, b: CompanyData) =>
           a.name.localeCompare(b.name)
         );
         setCompanies(companiesSorted);
@@ -234,13 +247,42 @@ export default function DashboardPage() {
   const updateCodes = async () => {
     const newCodes: { [key: string]: string } = {};
 
-    // Gerar códigos para todas as companies
-    for (const company of companies) {
+    // Calcular companies visíveis para o usuário atual
+    const visibleCompanies = getVisibleCompanies(companies, userData);
+
+    // Gerar códigos para todas as companies visíveis
+    for (const company of visibleCompanies) {
       newCodes[company.name] = await generateTOTP(company.secret);
     }
 
     setCodes(newCodes);
     setTimeRemaining(getTimeRemaining());
+  };
+
+  const getFilteredCompanies = () => {
+    let filtered = getVisibleCompanies(companies, userData);
+    
+    // Filtro por tipo de autenticação
+    if (authTypeFilter !== "all") {
+      filtered = filtered.filter(company => company.authType === authTypeFilter);
+    }
+    
+    // Filtro por tags
+    if (tagFilter !== "all") {
+      if (tagFilter === "Individual") {
+        // Empresas com tag "Individual"
+        filtered = filtered.filter(company => 
+          company.tags && company.tags.includes("Individual")
+        );
+      } else {
+        // Empresas com a tag específica
+        filtered = filtered.filter(company => 
+          company.tags && company.tags.includes(tagFilter)
+        );
+      }
+    }
+    
+    return filtered;
   };
 
   useEffect(() => {
@@ -249,7 +291,7 @@ export default function DashboardPage() {
     updateCodes();
     const interval = setInterval(updateCodes, 1000);
     return () => clearInterval(interval);
-  }, [companies, isClient]);
+  }, [companies, userData, isClient]);
 
   const handleLogout = async () => {
     try {
@@ -369,14 +411,37 @@ export default function DashboardPage() {
 
   // Função para editar seguradora
   const saveEditCompany = async () => {
-    if (!userData || userData.role !== "admin") {
+    if (!userData || !user) {
       toast({
         title: "Acesso Negado",
-        description: "Apenas administradores podem editar seguradoras",
+        description: "Você precisa estar logado para editar seguradoras",
         variant: "destructive",
       });
       return;
     }
+
+    // Para usuários comuns, verificar se é uma seguradora individual própria
+    if (userData.role !== "admin") {
+      if (!editCompanyData?.tags || 
+          !editCompanyData.tags.includes("Individual") || 
+          editCompanyData.ownerId !== user.uid) {
+        toast({
+          title: "Acesso Negado",
+          description: "Você só pode editar suas próprias seguradoras individuais",
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+    if (!editCompanyData) {
+      toast({
+        title: "Erro",
+        description: "Dados da seguradora não encontrados",
+        variant: "destructive",
+      });
+      return;
+    }
+
     const {
       id,
       name,
@@ -475,8 +540,12 @@ export default function DashboardPage() {
       receiverEmail: authType === "email" ? receiverEmail?.trim() : "",
       receiverEmailPassword:
         authType === "email" ? receiverEmailPassword?.trim() : "",
+      // Preservar tags e propriedades de privacidade
+      tags: editCompanyData?.tags || [],
+      isPrivate: editCompanyData?.isPrivate || false,
+      ownerId: editCompanyData?.ownerId || null,
     };
-    await updateDoc(firestoreDoc(db, "companies", id), updatedData);
+    await updateDoc(firestoreDoc(db, "companies", id!), updatedData);
     // Remover a função saveCompaniesToFirestore e todas as chamadas a ela
     setShowSecretModal(false);
     setEditingCompany(null);
@@ -515,10 +584,10 @@ export default function DashboardPage() {
 
   // Função para adicionar nova seguradora
   const openAddCompanyModal = () => {
-    if (!userData || userData.role !== "admin") {
+    if (!userData) {
       toast({
         title: "Acesso Negado",
-        description: "Apenas administradores podem adicionar seguradoras",
+        description: "Você precisa estar logado para adicionar seguradoras",
         variant: "destructive",
       });
       return;
@@ -534,16 +603,17 @@ export default function DashboardPage() {
       receiverEmail: "",
       receiverEmailPassword: "",
       logoFile: null,
+      tags: [],
     });
     setShowAddCompanyModal(true);
   };
 
   // Função para salvar nova seguradora
   const saveNewCompany = async () => {
-    if (!userData || userData.role !== "admin") {
+    if (!userData) {
       toast({
         title: "Acesso Negado",
-        description: "Apenas administradores podem adicionar seguradoras",
+        description: "Você precisa estar logado para adicionar seguradoras",
         variant: "destructive",
       });
       return;
@@ -655,10 +725,14 @@ export default function DashboardPage() {
       secret: authType === "totp" ? cleanSecret : "",
       color: color,
       logo: logoUrl,
-      authType: newCompanyData.authType as "totp" | "email",
+      authType: authType as "totp" | "email",
       email: authType === "email" ? email.trim() : "",
       receiverEmail: authType === "email" ? receiverEmail.trim() : "",
       receiverEmailPassword: authType === "email" ? receiverEmailPassword : "",
+      // Propriedades do sistema de tags
+      tags: userData.role === "admin" ? (newCompanyData.tags || []) : ["Individual"], // Tags selecionadas pelo admin ou "Individual" para usuários comuns
+      isPrivate: userData.role !== "admin", // Privada se não for admin
+      ownerId: userData.role !== "admin" ? userData.uid : null, // Dono se não for admin
     };
     await addDoc(collection(db, "companies"), newCompany);
     // Remover a função saveCompaniesToFirestore e todas as chamadas a ela
@@ -673,10 +747,13 @@ export default function DashboardPage() {
       receiverEmail: "",
       receiverEmailPassword: "",
       logoFile: null,
+      tags: [],
     });
     toast({
       title: "Seguradora adicionada!",
-      description: `${name} foi adicionada com sucesso`,
+      description: `${name} foi adicionada com sucesso${
+        userData.role !== "admin" ? " como seguradora privada" : ""
+      }`,
     });
   };
 
@@ -693,6 +770,7 @@ export default function DashboardPage() {
       receiverEmail: "",
       receiverEmailPassword: "",
       logoFile: null,
+      tags: [],
     });
   };
 
@@ -723,6 +801,85 @@ export default function DashboardPage() {
       title: "Seguradora removida!",
       description: `A seguradora foi removida do sistema`,
     });
+  };
+
+  // Função para remover seguradora individual do usuário comum
+  const removeUserCompany = async (companyId: string, companyName: string) => {
+    if (!userData || !user) {
+      toast({
+        title: "Acesso Negado",
+        description: "Você precisa estar logado para remover seguradoras",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Buscar a seguradora para verificar se o usuário é o dono
+    const company = companies.find(c => c.id === companyId);
+    
+    if (!company) {
+      toast({
+        title: "Erro",
+        description: "Seguradora não encontrada",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Verificar se é uma seguradora individual do usuário
+    if (!company.tags || !company.tags.includes("Individual") || company.ownerId !== user.uid) {
+      toast({
+        title: "Acesso Negado",
+        description: "Você só pode remover suas próprias seguradoras individuais",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Confirmar exclusão
+    if (window.confirm(`Tem certeza que deseja excluir a seguradora ${companyName}?`)) {
+      try {
+        await deleteDoc(firestoreDoc(db, "companies", companyId));
+        toast({
+          title: "Seguradora removida!",
+          description: `${companyName} foi removida com sucesso`,
+        });
+      } catch (error) {
+        console.error('Erro ao remover seguradora:', error);
+        toast({
+          title: "Erro",
+          description: "Erro ao remover seguradora. Tente novamente.",
+          variant: "destructive",
+        });
+      }
+    }
+  };
+
+  // Função para abrir modal de edição para usuários comuns
+  const openEditUserModal = (company: any) => {
+    if (!userData || !user) {
+      toast({
+        title: "Acesso Negado",
+        description: "Você precisa estar logado para editar seguradoras",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Verificar se é uma seguradora individual do usuário
+    if (!company.tags || !company.tags.includes("Individual") || company.ownerId !== user.uid) {
+      toast({
+        title: "Acesso Negado",
+        description: "Você só pode editar suas próprias seguradoras individuais",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setEditingCompany(company);
+    setEditCompanyData({ ...company });
+    setEditLogoFile(null);
+    setShowSecretModal(true);
   };
 
   // Função para abrir modal de importação QR
@@ -783,10 +940,14 @@ export default function DashboardPage() {
           color: secret.color,
           logo: "/placeholder-logo.png",
           authType: "totp" as const, // Por padrão, seguradoras importadas são TOTP
+          // Propriedades do sistema de tags
+          tags: [], // Por padrão, sem tags (será definido pelo admin)
+          isPrivate: false, // Por padrão, não é privada
+          ownerId: null, // Por padrão, sem dono específico
         })),
       ];
 
-      setCompanies(updatedCompanies);
+      // Não precisamos mais usar setCompanies aqui pois o onSnapshot já atualiza automaticamente
       // Remover a função saveCompaniesToFirestore e todas as chamadas a ela
 
       toast({
@@ -922,17 +1083,84 @@ export default function DashboardPage() {
             </div>
           </div>
 
+          {/* Filtros */}
+          <div className="flex justify-center gap-6 mb-6">
+            <div className="flex gap-6 items-center bg-white/60 backdrop-blur-sm rounded-2xl px-6 py-4 shadow-lg border border-gray-100">
+              <div className="flex items-center gap-3">
+                <label className="text-sm font-medium text-gray-700 whitespace-nowrap">Tipo:</label>
+                <Select value={authTypeFilter} onValueChange={setAuthTypeFilter}>
+                  <SelectTrigger className="w-36 h-9 bg-white/80 border-gray-200 rounded-xl focus:ring-[#6600CC] focus:border-[#6600CC] shadow-sm">
+                    <SelectValue placeholder="Selecionar" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-white/95 backdrop-blur-sm border-gray-200 rounded-xl shadow-xl">
+                    <SelectItem value="all" className="focus:bg-[#6600CC]/10 focus:text-[#6600CC] rounded-lg">Todos</SelectItem>
+                    <SelectItem value="totp" className="focus:bg-[#6600CC]/10 focus:text-[#6600CC] rounded-lg">TOTP MFA</SelectItem>
+                    <SelectItem value="email" className="focus:bg-[#6600CC]/10 focus:text-[#6600CC] rounded-lg">E-mail</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              <div className="w-px h-6 bg-gray-200"></div>
+              
+              <div className="flex items-center gap-3">
+                <label className="text-sm font-medium text-gray-700 whitespace-nowrap">Etiqueta:</label>
+                <Select value={tagFilter} onValueChange={setTagFilter}>
+                  <SelectTrigger className="w-36 h-9 bg-white/80 border-gray-200 rounded-xl focus:ring-[#6600CC] focus:border-[#6600CC] shadow-sm">
+                    <SelectValue placeholder="Selecionar" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-white/95 backdrop-blur-sm border-gray-200 rounded-xl shadow-xl">
+                    <SelectItem value="all" className="focus:bg-[#6600CC]/10 focus:text-[#6600CC] rounded-lg">Todas</SelectItem>
+                    <SelectItem value="Único" className="focus:bg-purple-50 focus:text-purple-800 rounded-lg">
+                      <span className="flex items-center gap-2">
+                        <div className="w-2 h-2 bg-purple-500 rounded-full"></div>
+                        Único
+                      </span>
+                    </SelectItem>
+                    <SelectItem value="Treino" className="focus:bg-orange-50 focus:text-orange-800 rounded-lg">
+                      <span className="flex items-center gap-2">
+                        <div className="w-2 h-2 bg-orange-500 rounded-full"></div>
+                        Treino
+                      </span>
+                    </SelectItem>
+                    <SelectItem value="Individual" className="focus:bg-blue-50 focus:text-blue-800 rounded-lg">
+                      <span className="flex items-center gap-2">
+                        <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                        Individual
+                      </span>
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </div>
+
           <div className="flex justify-center gap-4 mb-8">
+            {/* Botão para admin criar seguradoras públicas */}
+            {isAdmin && (
+              <Button
+                onClick={openAddCompanyModal}
+                variant="outline"
+                className="border-green-200 text-green-600 hover:bg-green-50 hover:border-green-300 bg-white/50 backdrop-blur-sm rounded-full px-6"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Nova Seguradora (Admin)
+              </Button>
+            )}
+            
+            {/* Botão para usuários comuns criarem seguradoras privadas */}
+            {!isAdmin && (
+              <Button
+                onClick={openAddCompanyModal}
+                variant="outline"
+                className="border-blue-200 text-blue-600 hover:bg-blue-50 hover:border-blue-300 bg-white/50 backdrop-blur-sm rounded-full px-6"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Cadastrar
+              </Button>
+            )}
+            
             {isAdmin && (
               <>
-                <Button
-                  onClick={openAddCompanyModal}
-                  variant="outline"
-                  className="border-green-200 text-green-600 hover:bg-green-50 hover:border-green-300 bg-white/50 backdrop-blur-sm rounded-full px-6"
-                >
-                  <Plus className="h-4 w-4 mr-2" />
-                  Nova Seguradora
-                </Button>
                 <Button
                   onClick={resetToDefaults}
                   variant="outline"
@@ -979,7 +1207,7 @@ export default function DashboardPage() {
 
         {/* Insurance Companies Grid - Modern minimalist design */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-          {companies.map((company) => (
+          {getFilteredCompanies().map((company) => (
             <div
               key={company.name}
               className="group relative bg-white/60 backdrop-blur-sm rounded-3xl p-8 shadow-lg hover:shadow-xl transition-all duration-300 border border-gray-100 hover:border-[#6600CC]/20"
@@ -1016,6 +1244,30 @@ export default function DashboardPage() {
                     </Badge>
                   )}
                 </div>
+
+                {/* Badges de tags */}
+                {company.tags && company.tags.length > 0 && (
+                  <div className="flex justify-center gap-1 mb-4 flex-wrap">
+                    {company.tags.map((tag) => (
+                      <Badge 
+                        key={tag}
+                        variant="outline"
+                        className={`text-xs ${
+                          tag === 'Único' 
+                            ? 'bg-purple-100 text-purple-800 border-purple-200' 
+                            : tag === 'Treino'
+                            ? 'bg-orange-100 text-orange-800 border-orange-200'
+                            : tag === 'Individual'
+                            ? 'bg-blue-100 text-blue-800 border-blue-200'
+                            : 'bg-gray-100 text-gray-800 border-gray-200'
+                        }`}
+                      >
+                        {tag}
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+
               </div>
 
               {/* 2FA Code */}
@@ -1083,9 +1335,9 @@ export default function DashboardPage() {
                     onClick={() =>
                       handleUpdateEmailCodes(
                         company.name,
-                        company.email,
-                        company.receiverEmail,
-                        company.receiverEmailPassword
+                        company.email || "",
+                        company.receiverEmail || "",
+                        company.receiverEmailPassword || ""
                       )
                     }
                     className="border-green-600 rounded-full text-green-600 hover:bg-green-600 hover:text-white"
@@ -1112,7 +1364,32 @@ export default function DashboardPage() {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => removeCompany(company.id)}
+                      onClick={() => removeCompany(company.id!)}
+                      className="border-red-200 text-red-600 hover:bg-red-50 hover:border-red-300 rounded-full px-4 transition-all duration-200"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </>
+                )}
+
+                {/* Botões de ação para usuários comuns - apenas seguradoras individuais próprias */}
+                {!isAdmin && 
+                 company.tags && 
+                 company.tags.includes("Individual") && 
+                 company.ownerId === user?.uid && (
+                  <>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => openEditUserModal(company)}
+                      className="border-gray-200 text-gray-600 hover:bg-gray-50 hover:border-gray-300 rounded-full px-4 transition-all duration-200"
+                    >
+                      <Edit3 className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => removeUserCompany(company.id!, company.name)}
                       className="border-red-200 text-red-600 hover:bg-red-50 hover:border-red-300 rounded-full px-4 transition-all duration-200"
                     >
                       <Trash2 className="h-4 w-4" />
@@ -1135,9 +1412,14 @@ export default function DashboardPage() {
       <Dialog open={showSecretModal} onOpenChange={closeEditModal}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Editar Seguradora</DialogTitle>
+            <DialogTitle>
+              {userData?.role === "admin" ? "Editar Seguradora" : "Editar Minha Seguradora"}
+            </DialogTitle>
             <DialogDescription>
-              Edite os dados da seguradora selecionada.
+              {userData?.role === "admin" 
+                ? "Edite os dados da seguradora selecionada."
+                : "Edite os dados da sua seguradora individual."
+              }
             </DialogDescription>
           </DialogHeader>
           {editCompanyData && (
@@ -1146,20 +1428,33 @@ export default function DashboardPage() {
                 <Label htmlFor="editAuthType" className="font-medium">
                   Tipo de Autenticação:
                 </Label>
-                <select
-                  id="editAuthType"
-                  value={editCompanyData.authType}
-                  onChange={(e) =>
+                <Select 
+                  value={editCompanyData?.authType || "totp"} 
+                  onValueChange={(value: "totp" | "email") =>
                     setEditCompanyData({
                       ...editCompanyData,
-                      authType: e.target.value,
+                      authType: value,
                     })
                   }
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#6600CC] focus:border-transparent"
                 >
-                  <option value="totp">TOTP MFA</option>
-                  <option value="email">E-mail</option>
-                </select>
+                  <SelectTrigger className="w-full h-10 bg-white border-gray-300 rounded-lg focus:ring-[#6600CC] focus:border-[#6600CC]">
+                    <SelectValue placeholder="Selecionar tipo" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-white border-gray-200 rounded-lg shadow-lg">
+                    <SelectItem value="totp" className="focus:bg-[#6600CC]/10 focus:text-[#6600CC] rounded-md">
+                      <span className="flex items-center gap-2">
+                        <Shield className="h-4 w-4 text-blue-600" />
+                        TOTP MFA
+                      </span>
+                    </SelectItem>
+                    <SelectItem value="email" className="focus:bg-[#6600CC]/10 focus:text-[#6600CC] rounded-md">
+                      <span className="flex items-center gap-2">
+                        <Mail className="h-4 w-4 text-green-600" />
+                        E-mail
+                      </span>
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
@@ -1168,7 +1463,7 @@ export default function DashboardPage() {
                   </Label>
                   <Input
                     id="editName"
-                    value={editCompanyData.name}
+                    value={editCompanyData?.name || ""}
                     onChange={(e) =>
                       setEditCompanyData({
                         ...editCompanyData,
@@ -1184,7 +1479,7 @@ export default function DashboardPage() {
                   </Label>
                   <Input
                     id="editFullName"
-                    value={editCompanyData.fullName}
+                    value={editCompanyData?.fullName || ""}
                     onChange={(e) =>
                       setEditCompanyData({
                         ...editCompanyData,
@@ -1387,9 +1682,17 @@ export default function DashboardPage() {
       <Dialog open={showAddCompanyModal} onOpenChange={setShowAddCompanyModal}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Adicionar Nova Seguradora</DialogTitle>
+            <DialogTitle>
+              {userData?.role === "admin" 
+                ? "Adicionar Nova Seguradora" 
+                : "Adicionar Minha Seguradora"
+              }
+            </DialogTitle>
             <DialogDescription>
-              Configure uma nova seguradora com seu secret 2FA real.
+              {userData?.role === "admin" 
+                ? "Configure uma nova seguradora pública que será visível para todos os usuários com as tags apropriadas."
+                : "Configure uma seguradora privada que será visível apenas para você."
+              }
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-6 py-4">
@@ -1432,20 +1735,33 @@ export default function DashboardPage() {
               <Label htmlFor="newCompanyAuthType" className="font-medium">
                 Tipo de Autenticação:
               </Label>
-              <select
-                id="newCompanyAuthType"
-                value={newCompanyData.authType}
-                onChange={(e) =>
+              <Select 
+                value={newCompanyData.authType} 
+                onValueChange={(value: "totp" | "email") =>
                   setNewCompanyData({
                     ...newCompanyData,
-                    authType: e.target.value as "totp" | "email",
+                    authType: value,
                   })
                 }
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#6600CC] focus:border-transparent"
               >
-                <option value="totp">TOTP MFA</option>
-                <option value="email">E-mail</option>
-              </select>
+                <SelectTrigger className="w-full h-10 bg-white border-gray-300 rounded-lg focus:ring-[#6600CC] focus:border-[#6600CC]">
+                  <SelectValue placeholder="Selecionar tipo" />
+                </SelectTrigger>
+                <SelectContent className="bg-white border-gray-200 rounded-lg shadow-lg">
+                  <SelectItem value="totp" className="focus:bg-[#6600CC]/10 focus:text-[#6600CC] rounded-md">
+                    <span className="flex items-center gap-2">
+                      <Shield className="h-4 w-4 text-blue-600" />
+                      TOTP MFA
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="email" className="focus:bg-[#6600CC]/10 focus:text-[#6600CC] rounded-md">
+                    <span className="flex items-center gap-2">
+                      <Mail className="h-4 w-4 text-green-600" />
+                      E-mail
+                    </span>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
@@ -1610,6 +1926,75 @@ export default function DashboardPage() {
                   }}
                 />
               </div>
+              
+              {/* Campo de Tags - apenas para admin */}
+              {userData?.role === "admin" && (
+                <div className="space-y-3">
+                  <Label htmlFor="newCompanyTags" className="font-medium">
+                    Tags da Seguradora:
+                  </Label>
+                  <Select
+                    value="add-tag"
+                    onValueChange={(value: string) => {
+                      if (value && value !== "add-tag" && !newCompanyData.tags?.includes(value)) {
+                        setNewCompanyData({
+                          ...newCompanyData,
+                          tags: [...(newCompanyData.tags || []), value]
+                        });
+                      }
+                    }}
+                  >
+                    <SelectTrigger className="w-full h-10 bg-white border-gray-300 rounded-lg focus:ring-[#6600CC] focus:border-[#6600CC]">
+                      <SelectValue placeholder="Adicionar tag" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-white border-gray-200 rounded-lg shadow-lg">
+                      <SelectItem value="add-tag" disabled className="text-gray-400">Adicionar tag</SelectItem>
+                      <SelectItem value="Único" className="focus:bg-purple-50 focus:text-purple-800 rounded-md">
+                        <span className="flex items-center gap-2">
+                          <div className="w-2 h-2 bg-purple-500 rounded-full"></div>
+                          Único
+                        </span>
+                      </SelectItem>
+                      <SelectItem value="Treino" className="focus:bg-orange-50 focus:text-orange-800 rounded-md">
+                        <span className="flex items-center gap-2">
+                          <div className="w-2 h-2 bg-orange-500 rounded-full"></div>
+                          Treino
+                        </span>
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {newCompanyData.tags && newCompanyData.tags.length > 0 && (
+                    <div className="flex flex-wrap gap-2 mt-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                      {newCompanyData.tags.map((tag) => (
+                        <Badge 
+                          key={tag}
+                          variant="outline"
+                          className={`text-xs flex items-center gap-1 shadow-sm transition-all hover:shadow-md ${
+                            tag === 'Único' 
+                              ? 'bg-purple-100 text-purple-800 border-purple-200 hover:bg-purple-200' 
+                              : tag === 'Treino'
+                              ? 'bg-orange-100 text-orange-800 border-orange-200 hover:bg-orange-200'
+                              : tag === 'Individual'
+                              ? 'bg-blue-100 text-blue-800 border-blue-200 hover:bg-blue-200'
+                              : 'bg-gray-100 text-gray-800 border-gray-200 hover:bg-gray-200'
+                          }`}
+                        >
+                          {tag}
+                          <button
+                            onClick={() => {
+                              const newTags = newCompanyData.tags?.filter(t => t !== tag) || []
+                              setNewCompanyData({ ...newCompanyData, tags: newTags })
+                            }}
+                            className="hover:bg-red-100 hover:text-red-600 rounded-full p-0.5 transition-colors"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
             <div className="text-sm">
               {newCompanyData.authType === "totp" &&
@@ -1653,7 +2038,7 @@ export default function DashboardPage() {
                     !newCompanyData.receiverEmailPassword?.trim()))
               }
             >
-              Adicionar Seguradora
+              {userData?.role === "admin" ? "Adicionar Seguradora" : "Adicionar Minha Seguradora"}
             </Button>
           </DialogFooter>
         </DialogContent>

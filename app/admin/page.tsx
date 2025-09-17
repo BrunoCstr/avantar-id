@@ -5,10 +5,12 @@ import { useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ArrowLeft, Users, Shield } from "lucide-react"
 import { useAuth } from "@/contexts/AuthContext"
 import { LoadingScreen } from "@/components/ui/loading"
 import UserManagement from "@/components/UserManagement"
+import CompanyManagement from "@/components/CompanyManagement"
 import Image from "next/image"
 
 export default function AdminPage() {
@@ -70,7 +72,32 @@ export default function AdminPage() {
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <UserManagement />
+        <Tabs defaultValue="users" className="w-full">
+          <TabsList className="grid w-full max-w-md grid-cols-2 bg-white/60 backdrop-blur-sm border border-gray-200 rounded-xl p-1 shadow-lg">
+            <TabsTrigger 
+              value="users" 
+              className="flex items-center gap-2 data-[state=active]:bg-[#6600CC] data-[state=active]:text-white data-[state=active]:shadow-md rounded-lg transition-all duration-200"
+            >
+              <Users className="h-4 w-4" />
+              Gerenciar Usuários
+            </TabsTrigger>
+            <TabsTrigger 
+              value="companies" 
+              className="flex items-center gap-2 data-[state=active]:bg-[#6600CC] data-[state=active]:text-white data-[state=active]:shadow-md rounded-lg transition-all duration-200"
+            >
+              <Shield className="h-4 w-4" />
+              Gerenciar Seguradoras
+            </TabsTrigger>
+          </TabsList>
+          
+          <TabsContent value="users" className="mt-8">
+            <UserManagement />
+          </TabsContent>
+          
+          <TabsContent value="companies" className="mt-8">
+            <CompanyManagement />
+          </TabsContent>
+        </Tabs>
       </main>
     </div>
   )

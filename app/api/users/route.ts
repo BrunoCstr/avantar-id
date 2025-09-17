@@ -18,7 +18,7 @@ export async function DELETE(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { email, password, name, role } = await request.json()
+    const { email, password, name, role, tags } = await request.json()
     if (!email || !password) {
       return NextResponse.json({ error: 'Email e senha são obrigatórios' }, { status: 400 })
     }
@@ -44,7 +44,8 @@ export async function POST(request: NextRequest) {
       name: name || userRecord.displayName || undefined,
       role: role || 'user',
       createdAt: new Date().toISOString(),
-      status: 'active'
+      status: 'active',
+      tags: tags || []
     }
     await adminDb.collection('users').doc(userRecord.uid).set(userData)
     return NextResponse.json({ success: true, uid: userRecord.uid })

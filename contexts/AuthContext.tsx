@@ -23,6 +23,7 @@ interface UserData {
   role: 'admin' | 'user'
   createdAt: string
   status: 'active' | 'inactive'
+  tags?: string[] // Tags do usuário (ex: "Treino", "Premium", etc.)
 }
 
 interface AuthContextType {
@@ -31,7 +32,7 @@ interface AuthContextType {
   loading: boolean
   login: (email: string, password: string) => Promise<void>
   logout: () => Promise<void>
-  register: (email: string, password: string, name?: string, role?: 'admin' | 'user') => Promise<void>
+  register: (email: string, password: string, name?: string, role?: 'admin' | 'user', tags?: string[]) => Promise<void>
   resetPassword: (email: string) => Promise<void>
   updateUserRole: (uid: string, role: 'admin' | 'user') => Promise<void>
   sessionReady: boolean
@@ -266,7 +267,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     email: string, 
     password: string, 
     name?: string, 
-    role: 'admin' | 'user' = 'user'
+    role: 'admin' | 'user' = 'user',
+    tags: string[] = []
   ) => {
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password)
@@ -284,7 +286,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         name: name || user.displayName || undefined,
         role,
         createdAt: new Date().toISOString(),
-        status: 'active'
+        status: 'active',
+        tags: tags
       }
       
       await setDoc(doc(db, 'users', user.uid), userData)

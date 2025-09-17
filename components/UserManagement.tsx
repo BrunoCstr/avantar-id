@@ -16,11 +16,11 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Plus, Trash2 } from "lucide-react"
+import { Plus, Trash2, X } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { useAuth } from "@/contexts/AuthContext"
 import { LoadingScreen } from "@/components/ui/loading"
-import { collection, getDocs, deleteDoc, doc } from 'firebase/firestore'
+import { collection, getDocs, deleteDoc, doc, updateDoc } from 'firebase/firestore'
 import { deleteUser } from 'firebase/auth'
 import { db } from '@/lib/firebase'
 
@@ -31,6 +31,7 @@ interface UserData {
   role: 'admin' | 'user'
   createdAt: string
   status: 'active' | 'inactive'
+  tags?: string[] // Tags do usuário (ex: "Treino", "Premium", etc.)
 }
 
 export default function UserManagement() {
@@ -42,6 +43,7 @@ export default function UserManagement() {
     password: "",
     name: "",
     role: "user" as "admin" | "user",
+    tags: [] as string[],
   })
   const [error, setError] = useState("")
   const { register, updateUserRole, userData } = useAuth()
@@ -121,7 +123,7 @@ export default function UserManagement() {
         title: "Usuário criado!",
         description: `${newUser.email} foi cadastrado com sucesso`,
       })
-      setNewUser({ email: "", password: "", name: "", role: "user" })
+      setNewUser({ email: "", password: "", name: "", role: "user", tags: [] })
       setIsDialogOpen(false)
       await loadUsers() // Recarregar lista de usuários
     } catch (error: any) {
@@ -172,6 +174,24 @@ export default function UserManagement() {
       toast({
         title: "Erro",
         description: "Erro ao atualizar função do usuário",
+        variant: "destructive"
+      })
+    }
+  }
+
+  const handleUpdateTags = async (uid: string, newTags: string[]) => {
+    try {
+      await updateDoc(doc(db, 'users', uid), { tags: newTags })
+      toast({
+        title: "Tags atualizadas",
+        description: "As tags do usuário foram atualizadas com sucesso",
+      })
+      await loadUsers() // Recarregar lista
+    } catch (error) {
+      console.error('Erro ao atualizar tags:', error)
+      toast({
+        title: "Erro",
+        description: "Erro ao atualizar tags do usuário",
         variant: "destructive"
       })
     }
@@ -248,6 +268,47 @@ export default function UserManagement() {
                   </SelectContent>
                 </Select>
               </div>
+              <div>
+                <Label htmlFor="tags">Tags</Label>
+                <Select
+                  value="add-tag"
+                  onValueChange={(value) => {
+                    if (value && value !== "add-tag" && !newUser.tags.includes(value)) {
+                      setNewUser({ ...newUser, tags: [...newUser.tags, value] })
+                    }
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecionar tag" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="add-tag" disabled>Selecionar tag</SelectItem>
+                    <SelectItem value="Treino">Treino</SelectItem>
+                  </SelectContent>
+                </Select>
+                {newUser.tags.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-2">
+                    {newUser.tags.map((tag) => (
+                      <Badge 
+                        key={tag}
+                        variant="outline"
+                        className="text-xs flex items-center gap-1 bg-orange-100 text-orange-800 border-orange-200"
+                      >
+                        {tag}
+                        <button
+                          onClick={() => {
+                            const newTags = newUser.tags.filter(t => t !== tag)
+                            setNewUser({ ...newUser, tags: newTags })
+                          }}
+                          className="hover:bg-gray-200 rounded-full p-0.5"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+              </div>
 
               {error && (
                 <Alert className="border-red-200 bg-red-50">
@@ -265,7 +326,7 @@ export default function UserManagement() {
                   onClick={() => {
                     setIsDialogOpen(false)
                     setError("")
-                    setNewUser({ email: "", password: "", name: "", role: "user" })
+                    setNewUser({ email: "", password: "", name: "", role: "user", tags: [] })
                   }}
                 >
                   Cancelar
@@ -284,6 +345,7 @@ export default function UserManagement() {
               <TableHead>Email</TableHead>
               <TableHead>Nome</TableHead>
               <TableHead>Função</TableHead>
+              <TableHead>Tags</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Criado em</TableHead>
               <TableHead>Ações</TableHead>
@@ -307,6 +369,55 @@ export default function UserManagement() {
                       <SelectItem value="admin">Admin</SelectItem>
                     </SelectContent>
                   </Select>
+                </TableCell>
+                <TableCell>
+                  <div className="flex flex-wrap gap-1">
+                    {user.tags && user.tags.length > 0 ? (
+                      user.tags.map((tag) => (
+                        <Badge 
+                          key={tag}
+                          variant="outline"
+                          className={`text-xs flex items-center gap-1 ${
+                            tag === 'Treino' 
+                              ? 'bg-orange-100 text-orange-800 border-orange-200' 
+                              : 'bg-gray-100 text-gray-800 border-gray-200'
+                          }`}
+                        >
+                          {tag}
+                          <button
+                            onClick={() => {
+                              const newTags = user.tags?.filter(t => t !== tag) || []
+                              handleUpdateTags(user.uid, newTags)
+                            }}
+                            className="hover:bg-gray-200 rounded-full p-0.5"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </Badge>
+                      ))
+                    ) : (
+                      <span className="text-gray-400 text-sm">Sem tags</span>
+                    )}
+                  </div>
+                  <div className="mt-1">
+                    <Select
+                      value="add-tag"
+                      onValueChange={(value) => {
+                        if (value && value !== "add-tag" && !user.tags?.includes(value)) {
+                          const newTags = [...(user.tags || []), value]
+                          handleUpdateTags(user.uid, newTags)
+                        }
+                      }}
+                    >
+                      <SelectTrigger className="w-24 h-6 text-xs">
+                        <SelectValue placeholder="+" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="add-tag" disabled>+</SelectItem>
+                        <SelectItem value="Treino">Treino</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </TableCell>
                 <TableCell>
                   <Badge variant={user.status === 'active' ? 'default' : 'secondary'}>
