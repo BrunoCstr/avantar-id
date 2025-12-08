@@ -1,15 +1,14 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
   typescript: {
     ignoreBuildErrors: true,
   },
   images: {
     unoptimized: true,
   },
-  // Configuração simplificada do webpack
+  // Configuração vazia do Turbopack para permitir uso do webpack
+  turbopack: {},
+  // Configuração do webpack para resolver módulos Node.js no lado do cliente
   webpack: (config, { isServer }) => {
     // Resolver apenas os módulos Node.js mais problemáticos
     if (!isServer) {
