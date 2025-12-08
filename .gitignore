@@ -16,6 +16,12 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
+# Firebase service account credentials (NUNCA commitar)
+fa-avantar-firebase-adminsdk-*.json
+**/firebase-adminsdk-*.json
+**/*firebase-adminsdk*.json
+*-firebase-adminsdk-*.json
+
 # vercel
 .vercel
 
