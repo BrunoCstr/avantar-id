@@ -256,7 +256,6 @@ export default function DashboardPage() {
     }
 
     setCodes(newCodes);
-    setTimeRemaining(getTimeRemaining());
   };
 
   const getFilteredCompanies = () => {
@@ -285,11 +284,26 @@ export default function DashboardPage() {
     return filtered;
   };
 
+  // Atualiza os códigos TOTP quando as companies mudam ou na montagem inicial
+  useEffect(() => {
+    if (!isClient || companies.length === 0) return;
+    updateCodes();
+  }, [companies, userData, isClient]);
+
+  // Timer que atualiza a cada segundo - apenas o contador visual
   useEffect(() => {
     if (!isClient) return;
 
-    updateCodes();
-    const interval = setInterval(updateCodes, 1000);
+    const interval = setInterval(() => {
+      const remaining = getTimeRemaining();
+      setTimeRemaining(remaining);
+      
+      // Quando o tempo zerar (novo período de 30s), atualiza os códigos
+      if (remaining === 30) {
+        updateCodes();
+      }
+    }, 1000);
+
     return () => clearInterval(interval);
   }, [companies, userData, isClient]);
 
