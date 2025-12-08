@@ -99,7 +99,7 @@ export function checkEmails(
                       console.log("📧 Email do remetente:", senderEmail);
                       console.log("✅ Remetentes permitidos:", allowedSenders);
                       if (!allowedSenders.includes(senderEmail)) {
-                        console.log(`⚠️ Remetente ${senderEmail} não está na lista de permitidos. Ignorando...`);
+                        console.log(`⚠️⚠️ Remetente ${senderEmail} não está na lista de permitidos. Ignorando...`);
                         return;
                       }
                       console.log("✅ Remetente autorizado, processando conteúdo...");
