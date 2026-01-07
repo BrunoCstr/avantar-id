@@ -28,10 +28,28 @@ service cloud.firestore {
       // Todos os usuários autenticados podem ler
       allow read: if request.auth != null;
 
-      // Apenas administradores podem escrever
-      allow write: if request.auth != null &&
-                      exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-                      get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "admin";
+      // Função auxiliar para verificar se é admin
+      function isAdmin() {
+        return request.auth != null &&
+               exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+               get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "admin";
+      }
+
+      // Criar: Admins podem criar qualquer seguradora, usuários podem criar apenas suas próprias
+      // (onde ownerId == request.auth.uid)
+      allow create: if request.auth != null && 
+                        (isAdmin() || 
+                         (request.resource.data.ownerId == request.auth.uid));
+
+      // Atualizar: Admins podem atualizar qualquer seguradora, usuários apenas suas próprias
+      allow update: if request.auth != null && 
+                        (isAdmin() || 
+                         (resource.data.ownerId == request.auth.uid));
+
+      // Deletar: Admins podem deletar qualquer seguradora, usuários apenas suas próprias
+      allow delete: if request.auth != null && 
+                        (isAdmin() || 
+                         (resource.data.ownerId == request.auth.uid));
     }
     
     // Manter compatibilidade com dados antigos (caso existam)

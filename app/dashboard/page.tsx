@@ -409,14 +409,25 @@ export default function DashboardPage() {
 
   // Função para editar secret de uma seguradora
   const openEditModal = (company: any) => {
-    if (!userData || userData.role !== "admin") {
+    if (!userData) {
       toast({
         title: "Acesso Negado",
-        description: "Apenas administradores podem editar seguradoras",
+        description: "Você precisa estar logado para editar seguradoras",
         variant: "destructive",
       });
       return;
     }
+    
+    // Usuários comuns só podem editar suas próprias seguradoras (onde são donos)
+    if (userData.role !== "admin" && company.ownerId !== userData.uid) {
+      toast({
+        title: "Acesso Negado",
+        description: "Você só pode editar suas próprias seguradoras",
+        variant: "destructive",
+      });
+      return;
+    }
+    
     setEditingCompany(company);
     setEditCompanyData({ ...company });
     setEditLogoFile(null);
@@ -434,14 +445,12 @@ export default function DashboardPage() {
       return;
     }
 
-    // Para usuários comuns, verificar se é uma seguradora individual própria
+    // Para usuários comuns, verificar se é o dono da seguradora
     if (userData.role !== "admin") {
-      if (!editCompanyData?.tags || 
-          !editCompanyData.tags.includes("Individual") || 
-          editCompanyData.ownerId !== user.uid) {
+      if (editCompanyData?.ownerId !== user.uid) {
         toast({
           title: "Acesso Negado",
-          description: "Você só pode editar suas próprias seguradoras individuais",
+          description: "Você só pode editar suas próprias seguradoras",
           variant: "destructive",
         });
         return;
@@ -826,11 +835,11 @@ export default function DashboardPage() {
       return;
     }
 
-    // Verificar se é uma seguradora individual do usuário
-    if (!company.tags || !company.tags.includes("Individual") || company.ownerId !== user.uid) {
+    // Verificar se o usuário é o dono da seguradora
+    if (company.ownerId !== user.uid) {
       toast({
         title: "Acesso Negado",
-        description: "Você só pode remover suas próprias seguradoras individuais",
+        description: "Você só pode remover suas próprias seguradoras",
         variant: "destructive",
       });
       return;
@@ -866,11 +875,11 @@ export default function DashboardPage() {
       return;
     }
 
-    // Verificar se é uma seguradora individual do usuário
-    if (!company.tags || !company.tags.includes("Individual") || company.ownerId !== user.uid) {
+    // Verificar se o usuário é o dono da seguradora
+    if (company.ownerId !== user.uid) {
       toast({
         title: "Acesso Negado",
-        description: "Você só pode editar suas próprias seguradoras individuais",
+        description: "Você só pode editar suas próprias seguradoras",
         variant: "destructive",
       });
       return;
@@ -1372,10 +1381,8 @@ export default function DashboardPage() {
                   </>
                 )}
 
-                {/* Botões de ação para usuários comuns - apenas seguradoras individuais próprias */}
+                {/* Botões de ação para usuários comuns - apenas seguradoras próprias */}
                 {!isAdmin && 
-                 company.tags && 
-                 company.tags.includes("Individual") && 
                  company.ownerId === user?.uid && (
                   <>
                     <Button
