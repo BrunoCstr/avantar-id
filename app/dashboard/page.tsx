@@ -675,20 +675,6 @@ export default function DashboardPage() {
       return;
     }
 
-    // Verificar se já existe uma seguradora com o mesmo nome
-    if (
-      companies.some(
-        (company) => company.name.toLowerCase() === name.trim().toLowerCase()
-      )
-    ) {
-      toast({
-        title: "Erro",
-        description: "Já existe uma seguradora com este nome",
-        variant: "destructive",
-      });
-      return;
-    }
-
     let cleanSecret;
     if (authType === "totp") {
       try {
@@ -1223,7 +1209,7 @@ export default function DashboardPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
           {getFilteredCompanies().map((company) => (
             <div
-              key={company.name}
+              key={company.id || `${company.name}-${company.ownerId || 'public'}`}
               className="group relative bg-white/60 backdrop-blur-sm rounded-3xl p-8 shadow-lg hover:shadow-xl transition-all duration-300 border border-gray-100 hover:border-[#6600CC]/20"
             >
               {/* Company Logo */}
